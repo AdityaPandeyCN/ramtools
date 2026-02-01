@@ -1,15 +1,21 @@
 #include "ramcore/SamParser.h"
 #include <cstring>
 #include <cstdlib>
+#include <string>
 
 namespace ramcore {
 
+namespace {
+
 void StripCRLF(char* str) {
-    size_t len = strlen(str);
-    while (len > 0 && (str[len-1] == '\n' || str[len-1] == '\r')) {
-        str[--len] = '\0';
+    std::string buffer(str);
+    while (!buffer.empty() && (buffer.back() == '\n' || buffer.back() == '\r')) {
+        buffer.pop_back();
     }
+    std::memcpy(str, buffer.c_str(), buffer.size() + 1);
 }
+
+} // namespace
 
 bool SamParser::ParseFile(const char* filename, 
                          HeaderCallback header_cb, 
@@ -91,5 +97,4 @@ bool SamParser::ParseLine(char* line, SamRecord& record) {
     return field_num >= 11; 
 }
 
-} 
-
+} // namespace ramcore

@@ -80,9 +80,7 @@ public:
     using HeaderCallback = std::function<void(const std::string& tag, const std::string& content)>;
     using RecordCallback = std::function<void(const SamRecord& record, size_t record_number)>;
     
-    bool ParseFile(const char* filename, 
-                   HeaderCallback header_cb, 
-                   RecordCallback record_cb);
+    bool ParseFile(const char* filename, HeaderCallback header_cb, RecordCallback record_cb);
     
     size_t GetLinesProcessed() const { return lines_processed_; }
     size_t GetRecordsProcessed() const { return records_processed_; }
@@ -95,9 +93,6 @@ private:
     static constexpr int kMaxLineLength = 10240;
 };
 
-void StripCRLF(char* str);
+} // namespace ramcore
 
-} 
-
-#endif // RAMCORE_SAMPARSER_H 
-
+#endif // RAMCORE_SAMPARSER_H
