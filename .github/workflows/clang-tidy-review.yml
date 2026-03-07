@@ -39,7 +39,7 @@ jobs:
         id: review
         with:
           build_dir: build
-          apt_packages: cmake,libxml2,libxml2-dev,libtinfo-dev,zlib1g-dev,libzstd-dev,libvdt-dev,libtbb-dev,libhts-dev
+          apt_packages: cmake,libxml2,libxml2-dev,libtinfo-dev,zlib1g-dev,libzstd-dev,libvdt-dev,libtbb-dev,libhts-dev,libgtest-dev
           split_workflow: true
           config_file: .clang-tidy
           install_commands: |
