@@ -4,42 +4,39 @@ on:
   pull_request:
     paths:
       - '**.h'
+      - '**.cpp'
       - '**.cxx'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-  pull-requests: write
-
 jobs:
   review:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout PR branch
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install LLVM and Clang
         uses: KyleMayes/install-llvm-action@v2.0.7
         with:
-          version: '20.1.4'
+          version: "20.1.4"
 
-      - name: Install lit
-        run: pip install --disable-pip-version-check --no-input lit
+      - name: install lit
+        run: pip install lit
 
       - name: Run clang-tidy
         uses: ZedThree/clang-tidy-review@v0.22.0
         id: review
         with:
           build_dir: build
-          apt_packages: cmake,libxml2,libxml2-dev,libtinfo-dev,zlib1g-dev,libzstd-dev,libvdt-dev,libtbb-dev,libhts-dev,libgtest-dev
+          apt_packages: cmake,libxml2,libxml2-dev,libtinfo-dev,zlib1g-dev,libzstd-dev,libhts-dev
           split_workflow: true
           config_file: .clang-tidy
           install_commands: |
@@ -49,18 +46,14 @@ jobs:
           cmake_command: >
             bash -x -c '
             source /opt/root/bin/thisroot.sh &&
-            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-            -DCMAKE_C_COMPILER="$GITHUB_WORKSPACE/llvm/bin/clang"
-            -DCMAKE_CXX_COMPILER="$GITHUB_WORKSPACE/llvm/bin/clang++"
-            -DLLVM_DIR="$GITHUB_WORKSPACE/llvm"
-            -DBUILD_SHARED_LIBS=ON
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-            -DRAMTOOLS_BUILD_TESTS=ON
-            -DRAMTOOLS_BUILD_TOOLS=ON
-            -DRAMTOOLS_BUILD_BENCHMARKS=ON &&
-            cd build &&
-            cmake --build . --target googletest --parallel $(nproc --all) || true'
+            cmake . -B build -DCMAKE_BUILD_TYPE="Release" \
+              -DCMAKE_C_COMPILER="$GITHUB_WORKSPACE/llvm/bin/clang" \
+              -DCMAKE_CXX_COMPILER="$GITHUB_WORKSPACE/llvm/bin/clang++" \
+              -DLLVM_DIR="$GITHUB_WORKSPACE/llvm" \
+              -DBUILD_SHARED_LIBS=ON \
+              -DCMAKE_EXPORT_COMPILE_COMMANDS=ON &&
+            cmake --build build --target googletest --parallel $(nproc --all)
+            '
 
       - name: Upload artifacts
-        if: always()
         uses: ZedThree/clang-tidy-review/upload@v0.22.0
