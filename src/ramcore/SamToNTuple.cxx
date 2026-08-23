@@ -101,6 +101,7 @@ void samtoramntuple(const char *datafile,
           recordPtr->SetOPT(opt.c_str());
        }
 
+       RAMNTupleRecord::NoteRefSpan(recordPtr->GetRefSpan());
        writer->Fill(*defaultEntry);
 
        // Index building: create a sparse lookup table so region queries can jump

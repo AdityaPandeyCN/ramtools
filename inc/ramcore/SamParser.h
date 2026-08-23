@@ -92,7 +92,6 @@ private:
     size_t records_processed_ = 0;
     
     bool ParseLine(char* line, SamRecord& record);
-    static constexpr int kMaxLineLength = 10240;
 };
 
 void StripCRLF(char* str);

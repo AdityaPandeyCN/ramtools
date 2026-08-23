@@ -19,11 +19,6 @@
 
 namespace {
 
-constexpr int FLAG_UNMAPPED = 0x4;
-constexpr int FLAG_SECONDARY = 0x100;
-constexpr int FLAG_SUPPLEMENTARY = 0x800;
-constexpr int FLAG_FILTER = FLAG_UNMAPPED | FLAG_SECONDARY | FLAG_SUPPLEMENTARY;
-
 // Computes how many reference bases an alignment covers using CIGAR.
 //
 // CIGAR (Compact Idiosyncratic Gapped Alignment Report) describes how a read
@@ -51,7 +46,9 @@ int computeRefSpan(const std::vector<uint32_t> &cigarOps)
          span += static_cast<int>(op >> 4);
       }
    }
-   return span;
+   // A placed record with no CIGAR still occupies the base it sits on; htslib's
+   // bam_endpos says the same, so region queries agree with samtools.
+   return span > 0 ? span : 1;
 }
 
 int resolveRefId(const char *name)
@@ -74,8 +71,9 @@ bool parseRegion(const std::string &region, TString &rname, Int_t &start, Int_t 
    start = 0;
    end = std::numeric_limits<Int_t>::max() - 1;
 
-   // No colon means chromosome-only query e.g. "chr1"
-   const std::size_t colonPos = region.find(':');
+   // No colon means chromosome-only query e.g. "chr1". Split on the last colon:
+   // reference names may contain colons themselves (GRCh38 has "HLA-A*01:01:01:01").
+   const std::size_t colonPos = region.rfind(':');
    if (colonPos == std::string::npos) {
       rname = region;
       return true;
@@ -133,52 +131,64 @@ Long64_t ramntupleview(const char *file, const char *query, bool /*cache*/, bool
    }
 
    TString rname;
-   Int_t rs, re;
-   if (!parseRegion(region, rname, rs, re)) {
-      std::cerr << "Invalid region format. Use rname[:start[-end]]\n";
-      return 0;
-   }
+   Int_t rs = 0;
+   Int_t re = std::numeric_limits<Int_t>::max() - 1;
 
-   int refid = resolveRefId(rname.Data());
+   // Try the whole string as a reference name before reading its last colon as a
+   // coordinate separator, the same order samtools uses.
+   int refid = resolveRefId(region.c_str());
    if (refid < 0) {
-      std::cerr << "Reference '" << rname.Data() << "' not found\n";
-      return 0;
+      if (!parseRegion(region, rname, rs, re)) {
+         std::cerr << "Invalid region format. Use rname[:start[-end]]\n";
+         return 0;
+      }
+      refid = resolveRefId(rname.Data());
+      if (refid < 0) {
+         std::cerr << "Reference '" << rname.Data() << "' not found\n";
+         return 0;
+      }
    }
 
-   auto flagView = reader->GetView<uint16_t>("record.flag");
    auto refidView = reader->GetView<int32_t>("record.refid");
    auto posView = reader->GetView<int32_t>("record.pos");
    auto cigarView = reader->GetView<std::vector<uint32_t>>("record.cigar");
 
+   // The index entry at or before the region start is not enough on its own: a
+   // read beginning earlier can still reach into the region, and starting there
+   // would step over it. Backing off by the longest span in the file is exact.
+   // A file that does not record the span (0) is scanned from the reference's
+   // first entry instead.
    auto index = RAMNTupleRecord::GetIndex();
-   Long64_t start = (index && index->Size() > 0) ? index->GetRow(refid, rs) : 0;
-   if (start < 0)
-      start = 0;
+   Long64_t start = 0;
+   if (index && index->Size() > 0) {
+      const Int_t maxSpan = static_cast<Int_t>(RAMNTupleRecord::GetMaxRefSpan());
+      const Int_t seekPos = (maxSpan > 0 && rs > maxSpan) ? rs - maxSpan : 0;
+      start = index->GetRow(refid, seekPos);
+      if (start < 0)
+         start = 0;
+   }
 
    Long64_t count = 0;
    const Long64_t total = reader->GetNEntries();
 
    for (Long64_t i = start; i < total; i++) {
-      if (flagView(i) & FLAG_FILTER)
-         continue;
-
-      int curRef = refidView(i);
+      const int curRef = refidView(i);
       if (curRef < refid)
          continue;
       if (curRef > refid)
          break;
 
-      int pos = posView(i);
+      const int pos = posView(i);
+      // Coordinate-sorted, so nothing after this can start inside the region.
       if (pos > re)
          break;
 
-      // Overlap: read_end >= rs (pos <= re guaranteed by break above)
+      // pos <= re is guaranteed by the break above, so a read starting at or
+      // after rs overlaps without needing its span decoded.
       if (pos >= rs) {
          count++;
-      } else {
-         int readEnd = pos + computeRefSpan(cigarView(i)) - 1;
-         if (readEnd >= rs)
-            count++;
+      } else if (pos + computeRefSpan(cigarView(i)) - 1 >= rs) {
+         count++;
       }
    }
 
