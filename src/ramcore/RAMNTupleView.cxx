@@ -114,8 +114,7 @@ bool parseRegion(const std::string &region, TString &rname, Int_t &start, Int_t 
 } // namespace
 
 // NOLINTNEXTLINE(misc-use-internal-linkage)
-Long64_t ramntupleview(const char *file, const char *query, bool /*cache*/, bool /*perfstats*/,
-                       const char * /*perfstatsfilename*/)
+Long64_t ramntupleview(const char *file, const char *query, const RAMNTupleViewOpts &)
 {
    TStopwatch stopwatch;
    stopwatch.Start();
