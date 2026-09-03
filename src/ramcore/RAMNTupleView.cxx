@@ -4,6 +4,8 @@
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <limits>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -112,21 +114,18 @@ bool parseRegion(const std::string &region, TString &rname, Int_t &start, Int_t 
 } // namespace
 
 // NOLINTNEXTLINE(misc-use-internal-linkage)
-Long64_t ramntupleview(const char *file, const char *query, const RAMNTupleViewOpts &)
+Long64_t ramntuplescan(ROOT::RNTupleReader &reader, const char *query, const std::function<void(Long64_t)> &on_row)
 {
-   TStopwatch stopwatch;
-   stopwatch.Start();
+   const std::string region = query ? query : "";
+   const Long64_t total = reader.GetNEntries();
 
-   auto reader = RAMNTupleRecord::OpenRAMFile(file);
-   if (!reader) {
-      std::cerr << "ramntupleview: failed to open file " << file << std::endl;
-      return 0;
-   }
-
-   std::string region = query ? query : "";
+   // No region means every record, the way `samtools view` with no region does.
    if (region.empty() || region == "*") {
-      stopwatch.Print();
-      return reader->GetNEntries();
+      if (on_row) {
+         for (Long64_t i = 0; i < total; i++)
+            on_row(i);
+      }
+      return total;
    }
 
    TString rname;
@@ -148,9 +147,9 @@ Long64_t ramntupleview(const char *file, const char *query, const RAMNTupleViewO
       }
    }
 
-   auto refidView = reader->GetView<int32_t>("record.refid");
-   auto posView = reader->GetView<int32_t>("record.pos");
-   auto cigarView = reader->GetView<std::vector<uint32_t>>("record.cigar");
+   auto refidView = reader.GetView<int32_t>("record.refid");
+   auto posView = reader.GetView<int32_t>("record.pos");
+   auto cigarView = reader.GetView<std::vector<uint32_t>>("record.cigar");
 
    // The index entry at or before the region start is not enough on its own: a
    // read beginning earlier can still reach into the region, and starting there
@@ -168,7 +167,6 @@ Long64_t ramntupleview(const char *file, const char *query, const RAMNTupleViewO
    }
 
    Long64_t count = 0;
-   const Long64_t total = reader->GetNEntries();
 
    for (Long64_t i = start; i < total; i++) {
       const int curRef = refidView(i);
@@ -184,14 +182,32 @@ Long64_t ramntupleview(const char *file, const char *query, const RAMNTupleViewO
 
       // pos <= re is guaranteed by the break above, so a read starting at or
       // after rs overlaps without needing its span decoded.
-      if (pos >= rs) {
-         count++;
-      } else if (pos + computeRefSpan(cigarView(i)) - 1 >= rs) {
-         count++;
-      }
+      if (pos < rs && pos + computeRefSpan(cigarView(i)) - 1 < rs)
+         continue;
+
+      count++;
+      if (on_row)
+         on_row(i);
    }
 
+   return count;
+}
+
+// NOLINTNEXTLINE(misc-use-internal-linkage)
+Long64_t ramntupleview(const char *file, const char *query, const RAMNTupleViewOpts &)
+{
+   TStopwatch stopwatch;
+   stopwatch.Start();
+
+   auto reader = RAMNTupleRecord::OpenRAMFile(file);
+   if (!reader) {
+      std::cerr << "ramntupleview: failed to open file " << file << std::endl;
+      return 0;
+   }
+
+   const Long64_t count = ramntuplescan(*reader, query, nullptr);
+
    stopwatch.Print();
-   std::cout << "Found " << count << " records in region " << region << std::endl;
+   std::cout << "Found " << count << " records in region " << (query ? query : "") << std::endl;
    return count;
 }
