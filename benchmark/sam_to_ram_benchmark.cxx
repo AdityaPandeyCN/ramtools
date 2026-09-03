@@ -23,7 +23,7 @@ static void BM_SamToRamComparison(benchmark::State &state)
       FILE *original_stdout = stdout;
       stdout = fopen(NULL_DEVICE, "w");
 
-      samtoram(sam_file.c_str(), ttree_file.c_str(), true, true, true, 1, 0);
+      samtoram(sam_file.c_str(), ttree_file.c_str(), true, true, true, 101, 0);
 
       samtoramntuple(sam_file.c_str(), rntuple_file.c_str(), true, true, true, 505, 0);
 

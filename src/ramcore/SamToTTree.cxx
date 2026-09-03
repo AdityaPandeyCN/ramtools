@@ -13,7 +13,7 @@
 void samtoram(const char *datafile,
               const char *treefile,
               bool index, bool split, bool cache,
-              Int_t compression_algorithm,
+              Int_t compression_settings,
               UInt_t quality_policy)
 {
     TStopwatch stopwatch;
@@ -25,8 +25,7 @@ void samtoram(const char *datafile,
         return;
     }
     
-    f->SetCompressionLevel(1);
-    f->SetCompressionAlgorithm(compression_algorithm);
+    f->SetCompressionSettings(compression_settings);
     
     auto tree = new TTree("RAM", datafile);
     
