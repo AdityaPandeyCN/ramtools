@@ -257,6 +257,104 @@ TEST_F(ramcoreTest, RegionQueryFindsReadsStartingBeforeTheIndexAnchor)
    std::remove(rntupleFile);
 }
 
+// A region query seeks to an index entry and stops at the first record past the
+// region. Both steps assume coordinate order, so on a file that does not have it
+// they would walk past reads that belong in the answer. The file records which it
+// is, and an unsorted one is read end to end instead.
+// NOLINTNEXTLINE(misc-use-internal-linkage)
+TEST_F(ramcoreTest, RegionQueryOnUnsortedFileStillFindsEveryOverlap)
+{
+   const char *customSam = "test_unsorted.sam";
+   const char *rntupleFile = "test_unsorted.root";
+
+   {
+      std::ofstream sam(customSam);
+      sam << "@HD\tVN:1.6\tSO:unsorted\n";
+      sam << "@SQ\tSN:chr1\tLN:100000\n";
+      // Out of coordinate order on purpose. Only the first and last overlap
+      // chr1:1000-1100; a query that stopped at the first record past the region
+      // would report the first and never reach the last.
+      sam << "a\t0\tchr1\t1000\t60\t50M\t*\t0\t0\t" << std::string(50, 'A') << "\t*\n";
+      sam << "b\t0\tchr1\t90000\t60\t50M\t*\t0\t0\t" << std::string(50, 'C') << "\t*\n";
+      sam << "c\t0\tchr1\t50000\t60\t50M\t*\t0\t0\t" << std::string(50, 'G') << "\t*\n";
+      sam << "d\t0\tchr1\t1050\t60\t50M\t*\t0\t0\t" << std::string(50, 'T') << "\t*\n";
+   }
+
+   testing::internal::CaptureStderr();
+   samtoramntuple(customSam, rntupleFile, /*index=*/true, false, false, 505, 0);
+   testing::internal::GetCapturedStderr();
+
+   EXPECT_EQ(ramntupleview(rntupleFile, "chr1:1000-1100", opts), 2)
+      << "an unsorted file must still yield every record overlapping the region";
+   EXPECT_EQ(ramntupleview(rntupleFile, "chr1:50000-50010", opts), 1);
+   EXPECT_EQ(ramntupleview(rntupleFile, "chr1:2000-3000", opts), 0);
+
+   std::remove(customSam);
+   std::remove(rntupleFile);
+}
+
+// An index is only usable on a sorted file, so an unsorted one must not carry
+// one -- a stored index would send later queries seeking into a file whose order
+// does not support it.
+// NOLINTNEXTLINE(misc-use-internal-linkage)
+TEST_F(ramcoreTest, UnsortedInputIsNotIndexed)
+{
+   const char *customSam = "test_unsorted_idx.sam";
+   const char *rntupleFile = "test_unsorted_idx.root";
+
+   {
+      std::ofstream sam(customSam);
+      sam << "@HD\tVN:1.6\tSO:unsorted\n";
+      sam << "@SQ\tSN:chr1\tLN:100000\n";
+      sam << "a\t0\tchr1\t9000\t60\t50M\t*\t0\t0\t" << std::string(50, 'A') << "\t*\n";
+      sam << "b\t0\tchr1\t1000\t60\t50M\t*\t0\t0\t" << std::string(50, 'C') << "\t*\n";
+   }
+
+   testing::internal::CaptureStderr();
+   samtoramntuple(customSam, rntupleFile, /*index=*/true, false, false, 505, 0);
+   const std::string warning = testing::internal::GetCapturedStderr();
+   EXPECT_NE(warning.find("not sorted by coordinate"), std::string::npos)
+      << "the conversion must say why the file got no index";
+
+   RAMNTupleRecord::GetIndex()->Clear();
+   auto reader = RAMNTupleRecord::OpenRAMFile(rntupleFile);
+   ASSERT_TRUE(reader != nullptr);
+   EXPECT_EQ(RAMNTupleRecord::GetIndex()->Size(), 0U) << "an unsorted file must carry no index";
+   EXPECT_FALSE(RAMNTupleRecord::IsCoordinateSorted()) << "the file must record that it is unsorted";
+
+   std::remove(customSam);
+   std::remove(rntupleFile);
+}
+
+// A sorted file keeps the fast path: an index and the flag that lets a query use it.
+// NOLINTNEXTLINE(misc-use-internal-linkage)
+TEST_F(ramcoreTest, SortedInputIsIndexedAndMarkedSorted)
+{
+   const char *customSam = "test_sorted_idx.sam";
+   const char *rntupleFile = "test_sorted_idx.root";
+
+   {
+      std::ofstream sam(customSam);
+      sam << "@HD\tVN:1.6\tSO:coordinate\n";
+      sam << "@SQ\tSN:chr1\tLN:100000\n";
+      for (int i = 0; i < 400; ++i) {
+         sam << "r" << i << "\t0\tchr1\t" << (1000 + i * 100) << "\t60\t50M\t*\t0\t0\t" << std::string(50, 'A')
+             << "\t*\n";
+      }
+   }
+
+   samtoramntuple(customSam, rntupleFile, /*index=*/true, false, false, 505, 0);
+
+   RAMNTupleRecord::GetIndex()->Clear();
+   auto reader = RAMNTupleRecord::OpenRAMFile(rntupleFile);
+   ASSERT_TRUE(reader != nullptr);
+   EXPECT_GT(RAMNTupleRecord::GetIndex()->Size(), 0U);
+   EXPECT_TRUE(RAMNTupleRecord::IsCoordinateSorted());
+
+   std::remove(customSam);
+   std::remove(rntupleFile);
+}
+
 TEST_F(ramcoreTest, IndexGetRowsInRange)
 {
    RAMNTupleRecord::InitializeRefs();
