@@ -137,10 +137,11 @@ static void BM_SamtoolsSplitThreaded(benchmark::State &state)
    state.counters["reads/s"] = benchmark::Counter(num_reads, benchmark::Counter::kIsRate);
 }
 
-static void BM_ChromosomeSplitThreads(benchmark::State &state)
+// The RAM writer streams each record to its chromosome's file as it is parsed, so
+// there is no thread count to sweep -- only the read count.
+static void BM_ChromosomeSplit(benchmark::State &state)
 {
    int num_reads = state.range(0);
-   int num_threads = state.range(1);
    std::string sam_file = "bench_split_par_" + std::to_string(num_reads) + ".sam";
 
    GenerateSAMFile(sam_file, num_reads);
@@ -152,7 +153,7 @@ static void BM_ChromosomeSplitThreads(benchmark::State &state)
       stdout = fopen("/dev/null", "w");
       stderr = fopen("/dev/null", "w");
 
-      samtoramntuple_split_by_chromosome(sam_file.c_str(), "bench_split_par_out", 505, 1, num_threads);
+      samtoramntuple_split_by_chromosome(sam_file.c_str(), "bench_split_par_out", 505, 1);
 
       fclose(stdout);
       fclose(stderr);
@@ -160,7 +161,6 @@ static void BM_ChromosomeSplitThreads(benchmark::State &state)
       stderr = old_stderr;
 
       state.counters["size_MB"] = GetTotalFileSize("bench_split_par_out_") / (1024.0 * 1024.0);
-      state.counters["threads"] = num_threads;
       CleanupFiles("bench_split_par_out_");
    }
 
@@ -179,13 +179,6 @@ BENCHMARK(BM_SamtoolsSplitThreaded)
    ->Args({1000000, 4})
    ->Unit(benchmark::kMillisecond);
 
-BENCHMARK(BM_ChromosomeSplitThreads)
-   ->Args({100000, 2})
-   ->Args({100000, 4})
-   ->Args({500000, 2})
-   ->Args({500000, 4})
-   ->Args({1000000, 2})
-   ->Args({1000000, 4})
-   ->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_ChromosomeSplit)->Arg(100000)->Arg(500000)->Arg(1000000)->Unit(benchmark::kMillisecond);
 
 BENCHMARK_MAIN();

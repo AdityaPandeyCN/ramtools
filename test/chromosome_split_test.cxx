@@ -36,7 +36,7 @@ TEST_F(ChromosomeSplitTest, NoDataLoss)
    auto regularReader = ROOT::RNTupleReader::Open("RAM", "test_regular.root");
    Long64_t totalEntries = regularReader->GetNEntries();
 
-   samtoramntuple_split_by_chromosome("test.sam", "test_split", 505, 1, 4);
+   samtoramntuple_split_by_chromosome("test.sam", "test_split", 505, 1);
 
    Long64_t splitEntriesSum = 0;
    for (const auto &entry : std::filesystem::directory_iterator(".")) {
@@ -54,7 +54,7 @@ TEST_F(ChromosomeSplitTest, NoDataLoss)
 
 TEST_F(ChromosomeSplitTest, CorrectChromosomeAssignment)
 {
-   samtoramntuple_split_by_chromosome("test.sam", "test_split", 505, 1, 4);
+   samtoramntuple_split_by_chromosome("test.sam", "test_split", 505, 1);
 
    for (const auto &entry : std::filesystem::directory_iterator(".")) {
       std::string filename = entry.path().filename().string();
@@ -79,7 +79,7 @@ TEST_F(ChromosomeSplitTest, CorrectChromosomeAssignment)
 
 TEST_F(ChromosomeSplitTest, MetadataPresent)
 {
-   samtoramntuple_split_by_chromosome("test.sam", "test_split", 505, 1, 4);
+   samtoramntuple_split_by_chromosome("test.sam", "test_split", 505, 1);
 
    int filesChecked = 0;
    for (const auto &entry : std::filesystem::directory_iterator(".")) {
