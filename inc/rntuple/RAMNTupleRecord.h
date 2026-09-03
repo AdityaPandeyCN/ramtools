@@ -262,24 +262,4 @@ std::string FormatCIGAR(const std::vector<uint32_t> &cigar_ops);
 
 extern const uint8_t kIlluminaBinning[256];
 } // namespace RAMNTupleUtils
-/**
- * \class RAMNTupleConverter
- * \brief High-level conversion and utility functions for RAM RNTuple files.
- *
- * Provides one-call helpers for converting between SAM text and RAMNTuple
- * binaries, building an index, or viewing a genomic region – functionality
- * reused by several command-line tools in `tools/`.
- */
-class RAMNTupleConverter {
-public:
-   static void ConvertSAMToRAMNTuple(const std::string &sam_file, const std::string &ram_file,
-                                     uint32_t compression_flags = RAMNTupleRecord::kPhred33);
-
-   static void ConvertRAMNTupleToSAM(const std::string &ram_file, const std::string &sam_file);
-
-   static void BuildIndex(const std::string &ram_file);
-
-   static void ViewRegion(const std::string &ram_file, const std::string &region);
-};
-
 #endif
