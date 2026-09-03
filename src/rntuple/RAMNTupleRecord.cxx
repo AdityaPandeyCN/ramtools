@@ -7,7 +7,7 @@
 #include <TError.h>
 #include <TFile.h>
 #include <algorithm>
-#include <sstream>
+#include <charconv>
 #include <iostream>
 #include <fstream>
 #include <cstring>
@@ -354,12 +354,12 @@ void RAMNTupleRecord::SetRNEXT(const std::string &rnext)
    refnext = fgRnextRefs->GetRefId(rnext);
 }
 
-std::string RAMNTupleRecord::GetRNAME() const
+const std::string &RAMNTupleRecord::GetRNAME() const
 {
    return fgRnameRefs->GetRefName(refid);
 }
 
-std::string RAMNTupleRecord::GetRNEXT() const
+const std::string &RAMNTupleRecord::GetRNEXT() const
 {
    return fgRnextRefs->GetRefName(refnext);
 }
@@ -397,6 +397,11 @@ std::string RAMNTupleRecord::GetCIGAR() const
    return RAMNTupleUtils::FormatCIGAR(cigar);
 }
 
+void RAMNTupleRecord::AppendCIGAR(std::string &out) const
+{
+   RAMNTupleUtils::AppendCIGAR(cigar, out);
+}
+
 void RAMNTupleRecord::SetSEQ(const std::string &seq_str)
 {
    seq = RAMNTupleUtils::EncodeSequence(seq_str);
@@ -404,11 +409,20 @@ void RAMNTupleRecord::SetSEQ(const std::string &seq_str)
 
 std::string RAMNTupleRecord::GetSEQ() const
 {
+   std::string out;
+   AppendSEQ(out);
+   return out;
+}
+
+void RAMNTupleRecord::AppendSEQ(std::string &out) const
+{
    // Restores the "*" that EncodeSequence folded into an empty payload.
-   if (seq.size() < 4)
-      return "*";
+   if (seq.size() < 4) {
+      out += '*';
+      return;
+   }
    const uint32_t length = LoadLE32(seq.data());
-   return RAMNTupleUtils::DecodeSequence(seq.data() + 4, seq.size() - 4, length);
+   RAMNTupleUtils::AppendSequence(seq.data() + 4, seq.size() - 4, length, out);
 }
 
 void RAMNTupleRecord::SetQUAL(const std::string &qual_str)
@@ -419,6 +433,11 @@ void RAMNTupleRecord::SetQUAL(const std::string &qual_str)
 std::string RAMNTupleRecord::GetQUAL() const
 {
    return RAMNTupleUtils::DecodeQuality(qual, compression_flags);
+}
+
+void RAMNTupleRecord::AppendQUAL(std::string &out) const
+{
+   RAMNTupleUtils::AppendQuality(qual, compression_flags, out);
 }
 
 int32_t RAMNTupleRecord::GetCIGAROPLEN(size_t idx) const
@@ -520,7 +539,7 @@ std::string EncodeSequence(const std::string &seq)
    return encoded;
 }
 
-std::string DecodeSequence(const char *packed, size_t packed_size, size_t length)
+void AppendSequence(const char *packed, size_t packed_size, size_t length, std::string &out)
 {
    InitializeTables();
 
@@ -530,22 +549,29 @@ std::string DecodeSequence(const char *packed, size_t packed_size, size_t length
    if (packed == nullptr || packed_size < needed) {
       ::Error("DecodeSequence", "packed sequence holds %zu bytes, %zu needed for %zu bases", packed_size, needed,
               length);
-      return {};
+      return;
    }
 
-   std::string seq;
-   seq.resize(length);
+   const size_t begin = out.size();
+   out.resize(begin + length);
+   char *dst = out.data() + begin;
 
    const size_t pairs = length / 2;
    for (size_t i = 0; i < pairs; i++) {
       const uint8_t byte = static_cast<uint8_t>(packed[i]);
-      seq[i * 2] = kCodeToSeq[byte >> 4];
-      seq[i * 2 + 1] = kCodeToSeq[byte & 0xf];
+      dst[i * 2] = kCodeToSeq[byte >> 4];
+      dst[i * 2 + 1] = kCodeToSeq[byte & 0xf];
    }
    if (length % 2) {
-      seq[length - 1] = kCodeToSeq[static_cast<uint8_t>(packed[length / 2]) >> 4];
+      dst[length - 1] = kCodeToSeq[static_cast<uint8_t>(packed[length / 2]) >> 4];
    }
+}
 
+std::string DecodeSequence(const char *packed, size_t packed_size, size_t length)
+{
+   std::string seq;
+   seq.reserve(length);
+   AppendSequence(packed, packed_size, length, seq);
    return seq;
 }
 
@@ -579,26 +605,45 @@ std::string EncodeQuality(const std::string &qual, uint32_t compression_flags)
    return qual;
 }
 
-std::string DecodeQuality(const std::string &encoded_qual, uint32_t compression_flags)
+void AppendQuality(const std::string &encoded_qual, uint32_t compression_flags, std::string &out)
 {
    if (compression_flags & RAMNTupleRecord::kDrop) {
-      return "*";
+      out += '*';
+      return;
    }
 
    if (compression_flags & RAMNTupleRecord::kIlluminaBinning) {
       // Empty is the "quality not available" sentinel written by
       // EncodeQuality; restore the "*" it stood for.
-      if (encoded_qual.empty())
-         return "*";
-
-      std::string qual = encoded_qual;
-      for (auto &q : qual) {
-         q = static_cast<char>(static_cast<unsigned char>(q) + 33);
+      if (encoded_qual.empty()) {
+         out += '*';
+         return;
       }
-      return qual;
+
+      const size_t begin = out.size();
+      out.resize(begin + encoded_qual.size());
+      char *dst = out.data() + begin;
+      for (size_t i = 0; i < encoded_qual.size(); i++) {
+         dst[i] = static_cast<char>(static_cast<unsigned char>(encoded_qual[i]) + 33);
+      }
+      return;
    }
 
-   return encoded_qual;
+   // Phred+33 is stored as it arrived, so it goes straight out.
+   out += encoded_qual;
+}
+
+std::string DecodeQuality(const std::string &encoded_qual, uint32_t compression_flags)
+{
+   // Phred+33 stores the field verbatim; hand back the stored string itself
+   // rather than building a copy through the append path.
+   if (!(compression_flags & (RAMNTupleRecord::kDrop | RAMNTupleRecord::kIlluminaBinning)))
+      return encoded_qual;
+
+   std::string qual;
+   qual.reserve(encoded_qual.size());
+   AppendQuality(encoded_qual, compression_flags, qual);
+   return qual;
 }
 
 std::vector<uint32_t> ParseCIGAR(const std::string &cigar_str)
@@ -649,20 +694,30 @@ std::vector<uint32_t> ParseCIGAR(const std::string &cigar_str)
    return cigar_ops;
 }
 
-std::string FormatCIGAR(const std::vector<uint32_t> &cigar_ops)
+void AppendCIGAR(const std::vector<uint32_t> &cigar_ops, std::string &out)
 {
    // Without this an unmapped read comes back with an empty CIGAR column
    // producing a malformed SAM record
-   if (cigar_ops.empty())
-      return "*";
-
-   std::ostringstream oss;
-
-   for (uint32_t op : cigar_ops) {
-      oss << (op >> 4) << kCodeToCigar[op & 0xf];
+   if (cigar_ops.empty()) {
+      out += '*';
+      return;
    }
 
-   return oss.str();
+   // std::to_chars into a stack buffer: an ostringstream here built and tore
+   // down a locale-aware stream for every record on the way out.
+   char digits[16];
+   for (uint32_t op : cigar_ops) {
+      const auto res = std::to_chars(digits, digits + sizeof(digits), op >> 4);
+      out.append(digits, res.ptr - digits);
+      out += kCodeToCigar[op & 0xf];
+   }
+}
+
+std::string FormatCIGAR(const std::vector<uint32_t> &cigar_ops)
+{
+   std::string out;
+   AppendCIGAR(cigar_ops, out);
+   return out;
 }
 
 } // namespace RAMNTupleUtils
