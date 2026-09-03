@@ -76,7 +76,7 @@ void samtoramntuple(const char *datafile,
                 size_t tab_pos = content.find('\t', sn_pos);
                 std::string ref_name =
                    content.substr(sn_pos, tab_pos != std::string::npos ? tab_pos - sn_pos : std::string::npos);
-                RAMNTupleRecord::GetRnameRefs()->GetRefId(ref_name.c_str());
+                RAMNTupleRecord::GetRnameRefs()->GetRefId(ref_name);
             }
         }
     };
@@ -84,21 +84,21 @@ void samtoramntuple(const char *datafile,
     auto record_callback = [&](const ramcore::SamRecord &sam_record, size_t record_num) {
        recordPtr->SetBit(quality_policy);
 
-       recordPtr->SetQNAME(sam_record.qname.c_str());
+       recordPtr->SetQNAME(sam_record.qname);
        recordPtr->SetFLAG(sam_record.flag);
-       recordPtr->SetREFID(sam_record.rname.c_str());
+       recordPtr->SetREFID(sam_record.rname);
        recordPtr->SetPOS(sam_record.pos);
        recordPtr->SetMAPQ(sam_record.mapq);
-       recordPtr->SetCIGAR(sam_record.cigar.c_str());
-       recordPtr->SetREFNEXT(sam_record.rnext.c_str());
+       recordPtr->SetCIGAR(sam_record.cigar);
+       recordPtr->SetREFNEXT(sam_record.rnext);
        recordPtr->SetPNEXT(sam_record.pnext);
        recordPtr->SetTLEN(sam_record.tlen);
-       recordPtr->SetSEQ(sam_record.seq.c_str());
-       recordPtr->SetQUAL(sam_record.qual.c_str());
+       recordPtr->SetSEQ(sam_record.seq);
+       recordPtr->SetQUAL(sam_record.qual);
 
        recordPtr->ResetNOPT();
        for (const auto &opt : sam_record.optional_fields) {
-          recordPtr->SetOPT(opt.c_str());
+          recordPtr->SetOPT(opt);
        }
 
        RAMNTupleRecord::NoteRefSpan(recordPtr->GetRefSpan());
@@ -191,7 +191,7 @@ void samtoramntuple_split_by_chromosome(const char *datafile, const char *output
             size_t tab_pos = content.find('\t', sn_pos);
             std::string ref_name =
                content.substr(sn_pos, tab_pos != std::string::npos ? tab_pos - sn_pos : std::string::npos);
-            RAMNTupleRecord::GetRnameRefs()->GetRefId(ref_name.c_str());
+            RAMNTupleRecord::GetRnameRefs()->GetRefId(ref_name);
          }
       }
    };
@@ -257,26 +257,26 @@ void samtoramntuple_split_by_chromosome(const char *datafile, const char *output
                const auto &sam_record = records[i];
 
                recordPtr->SetBit(quality_policy);
-               recordPtr->SetQNAME(sam_record.qname.c_str());
+               recordPtr->SetQNAME(sam_record.qname);
                recordPtr->SetFLAG(sam_record.flag);
 
                {
                   std::lock_guard<std::mutex> lock(record_mutex);
-                  recordPtr->SetREFID(sam_record.rname.c_str());
-                  recordPtr->SetREFNEXT(sam_record.rnext.c_str());
+                  recordPtr->SetREFID(sam_record.rname);
+                  recordPtr->SetREFNEXT(sam_record.rnext);
                }
 
                recordPtr->SetPOS(sam_record.pos);
                recordPtr->SetMAPQ(sam_record.mapq);
-               recordPtr->SetCIGAR(sam_record.cigar.c_str());
+               recordPtr->SetCIGAR(sam_record.cigar);
                recordPtr->SetPNEXT(sam_record.pnext);
                recordPtr->SetTLEN(sam_record.tlen);
-               recordPtr->SetSEQ(sam_record.seq.c_str());
-               recordPtr->SetQUAL(sam_record.qual.c_str());
+               recordPtr->SetSEQ(sam_record.seq);
+               recordPtr->SetQUAL(sam_record.qual);
 
                recordPtr->ResetNOPT();
                for (const auto &opt : sam_record.optional_fields) {
-                  recordPtr->SetOPT(opt.c_str());
+                  recordPtr->SetOPT(opt);
                }
 
                fill_context->Fill(*entry);
