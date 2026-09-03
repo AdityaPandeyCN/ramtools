@@ -41,6 +41,9 @@ public:
    void Str(const char *s) { fBuf.append(s); }
    void Char(char c) { fBuf.push_back(c); }
 
+   /// Direct access for fields that decode straight into the buffer.
+   std::string &Buffer() { return fBuf; }
+
    void Int(long long v)
    {
       char tmp[24];
@@ -109,7 +112,7 @@ void WriteRecord(const RAMNTupleRecord &rec, SamWriter &out)
    out.Char('\t');
    out.Int(rec.GetMAPQ());
    out.Char('\t');
-   out.Str(rec.GetCIGAR());
+   rec.AppendCIGAR(out.Buffer());
    out.Char('\t');
    out.Str(rec.GetRNEXT());
    out.Char('\t');
@@ -117,9 +120,9 @@ void WriteRecord(const RAMNTupleRecord &rec, SamWriter &out)
    out.Char('\t');
    out.Int(rec.GetTLEN());
    out.Char('\t');
-   out.Str(rec.GetSEQ());
+   rec.AppendSEQ(out.Buffer());
    out.Char('\t');
-   out.Str(rec.GetQUAL());
+   rec.AppendQUAL(out.Buffer());
 
    for (const auto &tag : rec.GetTags()) {
       out.Char('\t');
