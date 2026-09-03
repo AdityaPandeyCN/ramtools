@@ -1,5 +1,6 @@
 #include <benchmark/benchmark.h>
 #include "benchmark_utils.h"
+#include "ramcore/RAMNTupleView.h"
 #include "ramcore/SamToTTree.h"
 #include "ramcore/SamToNTuple.h"
 #include <string>
@@ -9,8 +10,7 @@
 
 Long64_t ramview(const char *file, const char *query, bool cache = true, bool perfstats = false,
                  const char *perfstatsfilename = "perf.root");
-Long64_t ramntupleview(const char *file, const char *query, bool cache = true, bool perfstats = false,
-                       const char *perfstatsfilename = "perf.root");
+Long64_t ramntupleview(const char *file, const char *query, RAMNTupleViewOpts &opts);
 
 class RegionQueryFixture : public benchmark::Fixture {
 public:
@@ -85,7 +85,7 @@ BENCHMARK_DEFINE_F(RegionQueryFixture, RNTuple)(benchmark::State &state)
 
    for (auto _ : state) {
       suppress_output();
-      reads_in_this_run = ramntupleview(rntuple_root_file_.c_str(), region, true, false, "perf.root");
+      reads_in_this_run = ramntupleview(rntuple_root_file_.c_str(), region, {true, false, "perf.root"});
       restore_output();
 
       total_reads_processed += reads_in_this_run;

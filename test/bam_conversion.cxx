@@ -20,7 +20,7 @@
 #include <string>
 
 namespace {
-
+const RAMNTupleViewOpts opts = {true, false, ""};
 void GenerateBAMFile(const char *bam_path, int num_reads)
 {
    const char *sam_path = "temp_for_bam.sam";
@@ -230,7 +230,7 @@ TEST_F(BamToNTupleTest, RegionQueryWorks)
 
    for (const char *region : regions) {
       testing::internal::CaptureStdout();
-      const Long64_t count = ramntupleview("test_bam.ram", region, true, false, nullptr);
+      const Long64_t count = ramntupleview("test_bam.ram", region, opts);
       testing::internal::GetCapturedStdout();
       EXPECT_GE(count, 0);
    }
@@ -284,7 +284,7 @@ TEST_F(BamToNTupleTest, UnmappedAndMissingQualityHandled)
    bamtoramntuple("test_rich.bam", "test_rich.ram", true, false, true, 505, 0U);
 
    testing::internal::CaptureStdout();
-   const Long64_t count = ramntupleview("test_rich.ram", "chr1:100-2000", true, false, nullptr);
+   const Long64_t count = ramntupleview("test_rich.ram", "chr1:100-2000", opts);
    testing::internal::GetCapturedStdout();
    EXPECT_GE(count, 0);
 }
@@ -296,7 +296,7 @@ TEST_F(BamToNTupleTest, DifferentChromMateHandled)
    bamtoramntuple("test_rich.bam", "test_rich.ram", true, false, true, 505, 0U);
 
    testing::internal::CaptureStdout();
-   const Long64_t count = ramntupleview("test_rich.ram", "chr2:400-600", true, false, nullptr);
+   const Long64_t count = ramntupleview("test_rich.ram", "chr2:400-600", opts);
    testing::internal::GetCapturedStdout();
    EXPECT_GE(count, 0);
 }
