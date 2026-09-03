@@ -148,7 +148,10 @@ void samtoramntuple(const char *datafile,
     }
     RAMNTupleRecord::WriteAllRefs(*rootFile);
 
-    headers.Write();
+    // kSingleKey: TCollection::Write() without it writes every element as its own
+    // key, so an 84-line header became 84 keys all named "@SQ" that no reader can
+    // put back in order. One key holds the list, and the order with it.
+    headers.Write("headers", TObject::kSingleKey);
     rootFile->Close();
 
     printf("\nRAM file created: %s\n", treefile);
@@ -296,7 +299,7 @@ void samtoramntuple_split_by_chromosome(const char *datafile, const char *output
       }
 
       RAMNTupleRecord::WriteAllRefs(*file);
-      h.Write();
+      h.Write("headers", TObject::kSingleKey);
 
       file->Close();
    };
