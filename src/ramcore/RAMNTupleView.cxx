@@ -156,9 +156,14 @@ Long64_t ramntuplescan(ROOT::RNTupleReader &reader, const char *query, const std
    // would step over it. Backing off by the longest span in the file is exact.
    // A file that does not record the span (0) is scanned from the reference's
    // first entry instead.
+   // Seeking and stopping early are both claims about ordering. On a file whose
+   // records are not in coordinate order neither holds, so it is read end to end
+   // -- slower, but it returns the same records samtools would.
+   const bool sorted = RAMNTupleRecord::IsCoordinateSorted();
+
    auto index = RAMNTupleRecord::GetIndex();
    Long64_t start = 0;
-   if (index && index->Size() > 0) {
+   if (sorted && index && index->Size() > 0) {
       const Int_t maxSpan = static_cast<Int_t>(RAMNTupleRecord::GetMaxRefSpan());
       const Int_t seekPos = (maxSpan > 0 && rs > maxSpan) ? rs - maxSpan : 0;
       start = index->GetRow(refid, seekPos);
@@ -170,18 +175,22 @@ Long64_t ramntuplescan(ROOT::RNTupleReader &reader, const char *query, const std
 
    for (Long64_t i = start; i < total; i++) {
       const int curRef = refidView(i);
-      if (curRef < refid)
+      if (curRef != refid) {
+         // Sorted: every remaining record belongs to a later reference.
+         if (sorted && curRef > refid)
+            break;
          continue;
-      if (curRef > refid)
-         break;
+      }
 
       const int pos = posView(i);
-      // Coordinate-sorted, so nothing after this can start inside the region.
-      if (pos > re)
-         break;
+      if (pos > re) {
+         if (sorted)
+            break; // nothing after this can start inside the region
+         continue;
+      }
 
-      // pos <= re is guaranteed by the break above, so a read starting at or
-      // after rs overlaps without needing its span decoded.
+      // pos <= re here, so a read starting at or after rs overlaps outright and
+      // its span never has to be decoded.
       if (pos < rs && pos + computeRefSpan(cigarView(i)) - 1 < rs)
          continue;
 

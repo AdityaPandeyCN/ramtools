@@ -225,6 +225,8 @@ void bamtoramntuple(const char *bamfile, const char *treefile, bool index, bool 
    }
 
    RAMNTupleRecord::InitializeRefs();
+   RAMNTupleRecord::ResetMaxRefSpan();
+   RAMNTupleRecord::ResetSortState();
 
    const int nRef = sam_hdr_nref(hdr);
    for (int i = 0; i < nRef; ++i)
@@ -248,6 +250,8 @@ void bamtoramntuple(const char *bamfile, const char *treefile, bool index, bool 
    while (sam_read1(bamIn, hdr, rec) >= 0) {
       FillRecord(recordPtr.get(), rec, hdr, quality_policy);
       RAMNTupleRecord::NoteRefSpan(recordPtr->GetRefSpan());
+      if (!(rec->core.flag & kUnmapped) && recordPtr->GetREFID() >= 0)
+         RAMNTupleRecord::NotePlacement(recordPtr->GetREFID(), recordPtr->GetPOS() - 1);
       writer->Fill(*entry);
 
       if (index && !(rec->core.flag & kUnmapped) && recordPtr->GetREFID() >= 0) {
@@ -275,7 +279,13 @@ void bamtoramntuple(const char *bamfile, const char *treefile, bool index, bool 
    bam_destroy1(rec);
    writer.reset();
 
-   if (index)
+   if (index && !RAMNTupleRecord::IsCoordinateSorted())
+      std::cerr << "\n[bamtoramntuple] Warning: " << bamfile
+                << " is not sorted by coordinate, so no index was written.\n"
+                   "                  Region queries still return the right records, but they read the\n"
+                   "                  whole file. Sort it (samtools sort) and convert again for fast queries.\n";
+
+   if (index && RAMNTupleRecord::IsCoordinateSorted())
       RAMNTupleRecord::WriteIndex(*rootFile);
    RAMNTupleRecord::WriteAllRefs(*rootFile);
 

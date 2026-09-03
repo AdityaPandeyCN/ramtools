@@ -18,6 +18,9 @@ std::unique_ptr<RAMNTupleRefs> RAMNTupleRecord::fgRnameRefs = nullptr;
 std::unique_ptr<RAMNTupleRefs> RAMNTupleRecord::fgRnextRefs = nullptr;
 std::unique_ptr<RAMNTupleIndex> RAMNTupleRecord::fgIndex = nullptr;
 uint32_t RAMNTupleRecord::fgMaxRefSpan = 0;
+bool RAMNTupleRecord::fgCoordinateSorted = true;
+int32_t RAMNTupleRecord::fgLastPlacedRefId = -1;
+int32_t RAMNTupleRecord::fgLastPlacedPos = -1;
 
 static const char *kCodeToSeq = "=ACMGRSVTWYHKDBN";
 static uint8_t kSeqToCode[256] = {0};
@@ -243,6 +246,7 @@ void RAMNTupleRecord::WriteAllRefs(TFile &file)
    auto rnameField = metaModel->MakeField<std::vector<std::string>>("rname_refs");
    auto rnextField = metaModel->MakeField<std::vector<std::string>>("rnext_refs");
    auto spanField = metaModel->MakeField<uint32_t>("max_ref_span");
+   auto sortedField = metaModel->MakeField<bool>("coordinate_sorted");
 
    RNTupleWriteOptions writeOptions;
    writeOptions.SetCompression(505);
@@ -253,10 +257,12 @@ void RAMNTupleRecord::WriteAllRefs(TFile &file)
    auto rnextPtr = metaEntry->GetPtr<std::vector<std::string>>("rnext_refs");
 
    auto spanPtr = metaEntry->GetPtr<uint32_t>("max_ref_span");
+   auto sortedPtr = metaEntry->GetPtr<bool>("coordinate_sorted");
 
    *rnamePtr = fgRnameRefs->GetRefs();
    *rnextPtr = fgRnextRefs->GetRefs();
    *spanPtr = fgMaxRefSpan;
+   *sortedPtr = fgCoordinateSorted;
    metaWriter->Fill(*metaEntry);
 }
 
@@ -283,6 +289,17 @@ void RAMNTupleRecord::ReadAllRefs(const std::string &filename)
       try {
          auto span_view = reader->GetView<uint32_t>("max_ref_span");
          fgMaxRefSpan = span_view(0);
+      } catch (...) {
+         // Field doesn't exist
+      }
+
+      // Files written before this field carry no answer. They are read the way
+      // they always were -- as sorted -- so an old file behaves as it did; every
+      // file written from here on says which it is.
+      fgCoordinateSorted = true;
+      try {
+         auto sorted_view = reader->GetView<bool>("coordinate_sorted");
+         fgCoordinateSorted = sorted_view(0);
       } catch (...) {
          // Field doesn't exist
       }

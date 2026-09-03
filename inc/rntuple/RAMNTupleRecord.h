@@ -156,6 +156,13 @@ public:
    /// knows how far before the region a read may start. 0 means unrecorded.
    static uint32_t fgMaxRefSpan;
 
+   /// Whether the records were written in coordinate order. A region query can
+   /// only seek to an index entry and stop at the first record past the region
+   /// when they were; on an unsorted file it has to look at all of them.
+   static bool fgCoordinateSorted;
+   static int32_t fgLastPlacedRefId;
+   static int32_t fgLastPlacedPos;
+
 public:
    RAMNTupleRecord();
    ~RAMNTupleRecord() = default;
@@ -223,6 +230,26 @@ public:
    {
       if (span > fgMaxRefSpan)
          fgMaxRefSpan = span;
+   }
+   /// Drops the span carried over from an earlier conversion in the same process,
+   /// which would otherwise be written into this file and widen every seek.
+   static void ResetMaxRefSpan() { fgMaxRefSpan = 0; }
+
+   /// Feeds one placed record to the running coordinate-order check. Unplaced
+   /// records carry no position and are skipped by the caller.
+   static void NotePlacement(int32_t refid_, int32_t pos_)
+   {
+      if (refid_ < fgLastPlacedRefId || (refid_ == fgLastPlacedRefId && pos_ < fgLastPlacedPos))
+         fgCoordinateSorted = false;
+      fgLastPlacedRefId = refid_;
+      fgLastPlacedPos = pos_;
+   }
+   static bool IsCoordinateSorted() { return fgCoordinateSorted; }
+   static void ResetSortState()
+   {
+      fgCoordinateSorted = true;
+      fgLastPlacedRefId = -1;
+      fgLastPlacedPos = -1;
    }
    /// Reference bases covered by this record's CIGAR (0 when it has none).
    uint32_t GetRefSpan() const;

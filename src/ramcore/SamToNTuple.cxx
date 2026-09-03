@@ -46,6 +46,8 @@ void samtoramntuple(const char *datafile,
     }
 
     RAMNTupleRecord::InitializeRefs();
+    RAMNTupleRecord::ResetMaxRefSpan();
+    RAMNTupleRecord::ResetSortState();
 
     auto model = RAMNTupleRecord::MakeModel();
 
@@ -104,6 +106,9 @@ void samtoramntuple(const char *datafile,
        RAMNTupleRecord::NoteRefSpan(recordPtr->GetRefSpan());
        writer->Fill(*defaultEntry);
 
+       if (!(sam_record.flag & kUnmapped) && recordPtr->GetREFID() >= 0)
+          RAMNTupleRecord::NotePlacement(recordPtr->GetREFID(), recordPtr->GetPOS() - 1);
+
        // Index building: create a sparse lookup table so region queries can jump
        // directly to the relevant records instead of scanning from the beginning.
        //
@@ -143,7 +148,19 @@ void samtoramntuple(const char *datafile,
 
     writer.reset();
 
-    if (index) {
+    // An index is a promise that a query can seek: only true of a sorted file.
+    // The file records which it is, so a query on an unsorted one reads every
+    // record rather than quietly stopping early and missing some.
+    const bool sorted = RAMNTupleRecord::IsCoordinateSorted();
+    if (index && !sorted) {
+        fprintf(stderr,
+                "\n[samtoramntuple] Warning: %s is not sorted by coordinate, so no index was written.\n"
+                "                  Region queries still return the right records, but they read the\n"
+                "                  whole file. Sort it (samtools sort) and convert again for fast queries.\n",
+                datafile);
+    }
+
+    if (index && sorted) {
         RAMNTupleRecord::WriteIndex(*rootFile);
     }
     RAMNTupleRecord::WriteAllRefs(*rootFile);
@@ -160,7 +177,7 @@ void samtoramntuple(const char *datafile,
     RAMNTupleRecord::GetRnameRefs()->Print();
     RAMNTupleRecord::GetRnextRefs()->Print();
 
-    if (index) {
+    if (index && sorted) {
         printf("\nIndex entries: %zu\n", RAMNTupleRecord::GetIndex()->Size());
     }
 
