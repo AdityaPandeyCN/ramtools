@@ -286,13 +286,20 @@ void bamtoramntuple(const char *bamfile, const char *treefile, bool index, bool 
       std::istringstream ss(text);
       std::string line;
       while (std::getline(ss, line)) {
-         if (line.size() >= 3) {
-            auto named_obj = std::make_unique<TNamed>(line.substr(0, 3).c_str(), line.c_str());
-            headers.Add(named_obj.release());
-         }
+         if (line.size() < 3)
+            continue;
+         // Same split as the SAM path: the record tag, then everything after the
+         // first tab. Storing the whole line as the title instead would repeat
+         // the tag when the header is written back out.
+         const size_t tab = line.find('\t');
+         const std::string tag = line.substr(0, tab == std::string::npos ? line.size() : tab);
+         const std::string content = tab == std::string::npos ? std::string() : line.substr(tab + 1);
+         auto named_obj = std::make_unique<TNamed>(tag.c_str(), content.c_str());
+         headers.Add(named_obj.release());
       }
    }
-   headers.Write();
+   // kSingleKey, or every header line lands in the file as a separate key.
+   headers.Write("headers", TObject::kSingleKey);
 
    rootFile->Close();
    sam_hdr_destroy(hdr);
