@@ -12,6 +12,8 @@ int main(int argc, char* argv[]) {
        std::cout << "  -noindex     Disable indexing\n";
        std::cout << "  -illumina    Use Illumina quality binning\n";
        std::cout << "  -dropqual    Drop quality scores\n";
+       std::cout << "  -compression N  ROOT compression code, algorithm*100+level\n";
+       std::cout << "                  (505 = ZSTD-5, the default; 404 = LZ4-4; 101 = ZLIB-1; 207 = LZMA-7)\n";
        return 1;
     }
     
@@ -21,6 +23,7 @@ int main(int argc, char* argv[]) {
     bool do_split = false;
     bool do_index = true;
     uint32_t quality_mode = RAMNTupleRecord::kPhred33;
+    int compression = 505; // ZSTD level 5
     
     for (int i = 2; i < argc; i++) {
         std::string arg = argv[i];
@@ -32,6 +35,12 @@ int main(int argc, char* argv[]) {
            quality_mode = RAMNTupleRecord::kIlluminaBinning;
         } else if (arg == "-dropqual") {
            quality_mode = RAMNTupleRecord::kDrop;
+        } else if (arg == "-compression") {
+           if (i + 1 >= argc) {
+              std::cerr << "samtoramntuple: -compression needs a value\n";
+              return 1;
+           }
+           compression = std::stoi(argv[++i]);
         } else if (arg[0] != '-') {
            output = argv[i];
         }
@@ -49,13 +58,13 @@ int main(int argc, char* argv[]) {
 
     try {
        if (do_split) {
-          samtoramntuple_split_by_chromosome(input, output, 505, quality_mode, 4);
+          samtoramntuple_split_by_chromosome(input, output, compression, quality_mode, 4);
        } else {
           std::string ramfile = std::string(output);
           if (ramfile.find(".root") == std::string::npos && ramfile.find(".ram") == std::string::npos) {
              ramfile += ".ram";
           }
-          samtoramntuple(input, ramfile.c_str(), do_index, true, true, 505, quality_mode);
+          samtoramntuple(input, ramfile.c_str(), do_index, true, true, compression, quality_mode);
        }
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;

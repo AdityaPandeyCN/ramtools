@@ -84,7 +84,7 @@ TEST_F(ramcoreTest, ConversionProducesEqualEntries)
    const char *ttreeFile = "test_ttree.root";
    const char *rntupleFile = "test_rntuple.root";
 
-   samtoram(samFile, ttreeFile, true, true, true, 1, 0);
+   samtoram(samFile, ttreeFile, true, true, true, 101, 0);
    samtoramntuple(samFile, rntupleFile, true, true, true, 505, 0);
 
    auto ft = std::unique_ptr<TFile>(TFile::Open(ttreeFile));
