@@ -7,9 +7,8 @@
 #include <TError.h>
 #include <TFile.h>
 #include <algorithm>
-#include <sstream>
+#include <charconv>
 #include <iostream>
-#include <fstream>
 #include <cstring>
 #include <cctype>
 
@@ -354,12 +353,12 @@ void RAMNTupleRecord::SetRNEXT(const std::string &rnext)
    refnext = fgRnextRefs->GetRefId(rnext);
 }
 
-std::string RAMNTupleRecord::GetRNAME() const
+const std::string &RAMNTupleRecord::GetRNAME() const
 {
    return fgRnameRefs->GetRefName(refid);
 }
 
-std::string RAMNTupleRecord::GetRNEXT() const
+const std::string &RAMNTupleRecord::GetRNEXT() const
 {
    return fgRnextRefs->GetRefName(refnext);
 }
@@ -397,6 +396,11 @@ std::string RAMNTupleRecord::GetCIGAR() const
    return RAMNTupleUtils::FormatCIGAR(cigar);
 }
 
+void RAMNTupleRecord::AppendCIGAR(std::string &out) const
+{
+   RAMNTupleUtils::AppendCIGAR(cigar, out);
+}
+
 void RAMNTupleRecord::SetSEQ(const std::string &seq_str)
 {
    seq = RAMNTupleUtils::EncodeSequence(seq_str);
@@ -404,11 +408,20 @@ void RAMNTupleRecord::SetSEQ(const std::string &seq_str)
 
 std::string RAMNTupleRecord::GetSEQ() const
 {
+   std::string out;
+   AppendSEQ(out);
+   return out;
+}
+
+void RAMNTupleRecord::AppendSEQ(std::string &out) const
+{
    // Restores the "*" that EncodeSequence folded into an empty payload.
-   if (seq.size() < 4)
-      return "*";
+   if (seq.size() < 4) {
+      out += '*';
+      return;
+   }
    const uint32_t length = LoadLE32(seq.data());
-   return RAMNTupleUtils::DecodeSequence(seq.data() + 4, seq.size() - 4, length);
+   RAMNTupleUtils::AppendSequence(seq.data() + 4, seq.size() - 4, length, out);
 }
 
 void RAMNTupleRecord::SetQUAL(const std::string &qual_str)
@@ -419,6 +432,11 @@ void RAMNTupleRecord::SetQUAL(const std::string &qual_str)
 std::string RAMNTupleRecord::GetQUAL() const
 {
    return RAMNTupleUtils::DecodeQuality(qual, compression_flags);
+}
+
+void RAMNTupleRecord::AppendQUAL(std::string &out) const
+{
+   RAMNTupleUtils::AppendQuality(qual, compression_flags, out);
 }
 
 int32_t RAMNTupleRecord::GetCIGAROPLEN(size_t idx) const
@@ -520,7 +538,7 @@ std::string EncodeSequence(const std::string &seq)
    return encoded;
 }
 
-std::string DecodeSequence(const char *packed, size_t packed_size, size_t length)
+void AppendSequence(const char *packed, size_t packed_size, size_t length, std::string &out)
 {
    InitializeTables();
 
@@ -530,22 +548,29 @@ std::string DecodeSequence(const char *packed, size_t packed_size, size_t length
    if (packed == nullptr || packed_size < needed) {
       ::Error("DecodeSequence", "packed sequence holds %zu bytes, %zu needed for %zu bases", packed_size, needed,
               length);
-      return {};
+      return;
    }
 
-   std::string seq;
-   seq.resize(length);
+   const size_t begin = out.size();
+   out.resize(begin + length);
+   char *dst = out.data() + begin;
 
    const size_t pairs = length / 2;
    for (size_t i = 0; i < pairs; i++) {
       const uint8_t byte = static_cast<uint8_t>(packed[i]);
-      seq[i * 2] = kCodeToSeq[byte >> 4];
-      seq[i * 2 + 1] = kCodeToSeq[byte & 0xf];
+      dst[i * 2] = kCodeToSeq[byte >> 4];
+      dst[i * 2 + 1] = kCodeToSeq[byte & 0xf];
    }
    if (length % 2) {
-      seq[length - 1] = kCodeToSeq[static_cast<uint8_t>(packed[length / 2]) >> 4];
+      dst[length - 1] = kCodeToSeq[static_cast<uint8_t>(packed[length / 2]) >> 4];
    }
+}
 
+std::string DecodeSequence(const char *packed, size_t packed_size, size_t length)
+{
+   std::string seq;
+   seq.reserve(length);
+   AppendSequence(packed, packed_size, length, seq);
    return seq;
 }
 
@@ -579,26 +604,45 @@ std::string EncodeQuality(const std::string &qual, uint32_t compression_flags)
    return qual;
 }
 
-std::string DecodeQuality(const std::string &encoded_qual, uint32_t compression_flags)
+void AppendQuality(const std::string &encoded_qual, uint32_t compression_flags, std::string &out)
 {
    if (compression_flags & RAMNTupleRecord::kDrop) {
-      return "*";
+      out += '*';
+      return;
    }
 
    if (compression_flags & RAMNTupleRecord::kIlluminaBinning) {
       // Empty is the "quality not available" sentinel written by
       // EncodeQuality; restore the "*" it stood for.
-      if (encoded_qual.empty())
-         return "*";
-
-      std::string qual = encoded_qual;
-      for (auto &q : qual) {
-         q = static_cast<char>(static_cast<unsigned char>(q) + 33);
+      if (encoded_qual.empty()) {
+         out += '*';
+         return;
       }
-      return qual;
+
+      const size_t begin = out.size();
+      out.resize(begin + encoded_qual.size());
+      char *dst = out.data() + begin;
+      for (size_t i = 0; i < encoded_qual.size(); i++) {
+         dst[i] = static_cast<char>(static_cast<unsigned char>(encoded_qual[i]) + 33);
+      }
+      return;
    }
 
-   return encoded_qual;
+   // Phred+33 is stored as it arrived, so it goes straight out.
+   out += encoded_qual;
+}
+
+std::string DecodeQuality(const std::string &encoded_qual, uint32_t compression_flags)
+{
+   // Phred+33 stores the field verbatim; hand back the stored string itself
+   // rather than building a copy through the append path.
+   if (!(compression_flags & (RAMNTupleRecord::kDrop | RAMNTupleRecord::kIlluminaBinning)))
+      return encoded_qual;
+
+   std::string qual;
+   qual.reserve(encoded_qual.size());
+   AppendQuality(encoded_qual, compression_flags, qual);
+   return qual;
 }
 
 std::vector<uint32_t> ParseCIGAR(const std::string &cigar_str)
@@ -649,251 +693,30 @@ std::vector<uint32_t> ParseCIGAR(const std::string &cigar_str)
    return cigar_ops;
 }
 
-std::string FormatCIGAR(const std::vector<uint32_t> &cigar_ops)
+void AppendCIGAR(const std::vector<uint32_t> &cigar_ops, std::string &out)
 {
    // Without this an unmapped read comes back with an empty CIGAR column
    // producing a malformed SAM record
-   if (cigar_ops.empty())
-      return "*";
-
-   std::ostringstream oss;
-
-   for (uint32_t op : cigar_ops) {
-      oss << (op >> 4) << kCodeToCigar[op & 0xf];
+   if (cigar_ops.empty()) {
+      out += '*';
+      return;
    }
 
-   return oss.str();
+   // std::to_chars into a stack buffer: an ostringstream here built and tore
+   // down a locale-aware stream for every record on the way out.
+   char digits[16];
+   for (uint32_t op : cigar_ops) {
+      const auto res = std::to_chars(digits, digits + sizeof(digits), op >> 4);
+      out.append(digits, res.ptr - digits);
+      out += kCodeToCigar[op & 0xf];
+   }
+}
+
+std::string FormatCIGAR(const std::vector<uint32_t> &cigar_ops)
+{
+   std::string out;
+   AppendCIGAR(cigar_ops, out);
+   return out;
 }
 
 } // namespace RAMNTupleUtils
-// RAMNTupleConverter Implementation
-void RAMNTupleConverter::ConvertSAMToRAMNTuple(const std::string &sam_file, const std::string &ram_file,
-                                               uint32_t compression_flags)
-{
-
-   RAMNTupleRecord::InitializeRefs();
-
-   auto file = std::unique_ptr<TFile>(TFile::Open(ram_file.c_str(), "RECREATE"));
-   if (!file || !file->IsOpen()) {
-      ::Error("ConvertSAMToRAMNTuple", "Cannot create RAM file: %s", ram_file.c_str());
-      return;
-   }
-
-   auto model = RAMNTupleRecord::MakeModel();
-
-   RNTupleWriteOptions writeOptions;
-   writeOptions.SetCompression(505); // ZSTD level 5
-
-   auto writer = RNTupleWriter::Append(std::move(model), "RAM", *file, writeOptions);
-   auto defaultEntry = writer->GetModel().CreateEntry();
-   auto recordPtr = defaultEntry->GetPtr<RAMNTupleRecord>("record");
-
-   std::ifstream sam(sam_file);
-   if (!sam) {
-      ::Error("ConvertSAMToRAMNTuple", "Cannot open SAM file: %s", sam_file.c_str());
-      return;
-   }
-
-   std::string line;
-   int64_t entry_number = 0;
-
-   while (std::getline(sam, line)) {
-      if (line.empty() || line[0] == '@') {
-
-         if (line.substr(0, 3) == "@SQ") {
-            size_t sn_pos = line.find("SN:");
-            if (sn_pos != std::string::npos) {
-               size_t tab_pos = line.find('\t', sn_pos);
-               std::string seq_name =
-                  line.substr(sn_pos + 3, tab_pos != std::string::npos ? tab_pos - sn_pos - 3 : std::string::npos);
-               RAMNTupleRecord::GetRnameRefs()->GetRefId(seq_name);
-            }
-         }
-         continue;
-      }
-
-      RAMNTupleRecord rec;
-      rec.SetCompressionMode(compression_flags);
-
-      std::istringstream iss(line);
-      std::string qname, rname, cigar_str, rnext, seq_str, qual_str;
-      int flag_int, pos_int, mapq_int, pnext_int, tlen_int;
-
-      if (!(iss >> qname >> flag_int >> rname >> pos_int >> mapq_int >> cigar_str >> rnext >> pnext_int >> tlen_int >>
-            seq_str >> qual_str)) {
-         ::Warning("ConvertSAMToRAMNTuple", "Failed to parse line %ld", (long)(entry_number + 1));
-         continue;
-      }
-
-      rec.SetQNAME(qname);
-      rec.SetFLAG(static_cast<uint16_t>(flag_int));
-      rec.SetRNAME(rname);
-      rec.SetPOS(pos_int);
-      rec.SetMAPQ(static_cast<uint8_t>(mapq_int));
-      rec.SetCIGAR(cigar_str);
-      rec.SetRNEXT(rnext);
-      rec.SetPNEXT(pnext_int);
-      rec.SetTLEN(tlen_int);
-      rec.SetSEQ(seq_str);
-      rec.SetQUAL(qual_str);
-
-      std::string tag;
-      while (iss >> tag) {
-         rec.AddTag(tag);
-      }
-
-      if (rec.refid >= 0 && rec.pos >= 0) {
-         RAMNTupleRecord::GetIndex()->AddItem(rec.refid, rec.pos, entry_number);
-      }
-
-      *recordPtr = std::move(rec);
-      writer->Fill(*defaultEntry);
-
-      entry_number++;
-
-      if (entry_number % 100000 == 0) {
-         std::cout << "Processed " << entry_number << " records..." << std::endl;
-      }
-   }
-
-   writer.reset();
-
-   RAMNTupleRecord::WriteAllRefs(*file);
-   RAMNTupleRecord::WriteIndex(*file);
-
-   std::cout << "Conversion complete. Processed " << entry_number << " records." << std::endl;
-}
-
-void RAMNTupleConverter::ConvertRAMNTupleToSAM(const std::string &ram_file, const std::string &sam_file)
-{
-   auto reader = RAMNTupleRecord::OpenRAMFile(ram_file);
-   if (!reader) {
-      ::Error("ConvertRAMNTupleToSAM", "Cannot open RAM file: %s", ram_file.c_str());
-      return;
-   }
-
-   std::ofstream sam(sam_file);
-   if (!sam) {
-      ::Error("ConvertRAMNTupleToSAM", "Cannot create SAM file: %s", sam_file.c_str());
-      return;
-   }
-
-   sam << "@HD\tVN:1.6\tSO:unsorted\n";
-
-   auto refs = RAMNTupleRecord::GetRnameRefs();
-   if (refs) {
-      for (size_t i = 0; i < refs->Size(); ++i) {
-         sam << "@SQ\tSN:" << refs->GetRefName(i) << "\tLN:1\n";
-      }
-   }
-
-   auto view = reader->GetView<RAMNTupleRecord>("record");
-
-   for (auto i : reader->GetEntryRange()) {
-      const auto &rec = view(i);
-      rec.Print();
-   }
-
-   std::cout << "Conversion complete. Wrote " << reader->GetNEntries() << " records to SAM file." << std::endl;
-}
-
-void RAMNTupleConverter::BuildIndex(const std::string &ram_file)
-{
-   auto reader = RNTupleReader::Open("RAM", ram_file);
-   if (!reader) {
-      ::Error("BuildIndex", "Cannot open RAM file: %s", ram_file.c_str());
-      return;
-   }
-
-   auto index = std::make_unique<RAMNTupleIndex>();
-   auto view = reader->GetView<RAMNTupleRecord>("record");
-
-   std::cout << "Building index..." << std::endl;
-
-   for (auto i : reader->GetEntryRange()) {
-      const auto &rec = view(i);
-
-      if (rec.refid >= 0 && rec.pos >= 0) {
-         index->AddItem(rec.refid, rec.pos, i);
-      }
-
-      if (i > 0 && i % 1000000 == 0) {
-         std::cout << "Indexed " << i << " records..." << std::endl;
-      }
-   }
-
-   std::string index_file = ram_file + ".idx";
-   auto index_model = RNTupleModel::Create();
-   auto index_field = index_model->MakeField<std::vector<RAMNTupleIndex::IndexEntry>>("index");
-
-   auto writer = RNTupleWriter::Recreate(std::move(index_model), "INDEX", index_file);
-   *index_field = index->GetEntries();
-   writer->Fill();
-
-   std::cout << "Index built with " << index->Size() << " entries." << std::endl;
-}
-
-void RAMNTupleConverter::ViewRegion(const std::string &ram_file, const std::string &region)
-{
-   std::string ref_name;
-   int32_t start = 0, end = INT32_MAX;
-
-   size_t colon_pos = region.find(':');
-   if (colon_pos != std::string::npos) {
-      ref_name = region.substr(0, colon_pos);
-
-      size_t dash_pos = region.find('-', colon_pos);
-      if (dash_pos != std::string::npos) {
-         start = std::stoi(region.substr(colon_pos + 1, dash_pos - colon_pos - 1)) - 1;
-         end = std::stoi(region.substr(dash_pos + 1)) - 1;
-      } else {
-         start = std::stoi(region.substr(colon_pos + 1)) - 1;
-         end = start;
-      }
-   } else {
-      ref_name = region;
-   }
-
-   auto reader = RAMNTupleRecord::OpenRAMFile(ram_file);
-   if (!reader) {
-      ::Error("ViewRegion", "Cannot open RAM file: %s", ram_file.c_str());
-      return;
-   }
-
-   auto refs = RAMNTupleRecord::GetRnameRefs();
-   int32_t ref_id = refs ? refs->FindRefId(ref_name) : -1;
-
-   if (ref_id < 0) {
-      ::Error("ViewRegion", "Unknown reference sequence: %s", ref_name.c_str());
-      return;
-   }
-
-   auto index = RAMNTupleRecord::GetIndex();
-   if (index && index->Size() > 0) {
-      auto rows = index->GetRowsInRange(ref_id, start, end);
-      auto view = reader->GetView<RAMNTupleRecord>("record");
-
-      std::cout << "Found " << rows.size() << " reads in region " << region << std::endl;
-
-      for (int64_t row : rows) {
-         const auto &rec = view(row);
-         rec.Print();
-      }
-   } else {
-      std::cout << "No index found, performing linear scan..." << std::endl;
-
-      auto view = reader->GetView<RAMNTupleRecord>("record");
-      int count = 0;
-
-      for (auto i : reader->GetEntryRange()) {
-         const auto &rec = view(i);
-
-         if (rec.refid == ref_id && rec.pos >= start && rec.pos <= end) {
-            rec.Print();
-            count++;
-         }
-      }
-
-      std::cout << "Found " << count << " reads in region " << region << std::endl;
-   }
-}

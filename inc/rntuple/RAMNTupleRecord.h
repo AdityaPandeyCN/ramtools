@@ -182,12 +182,12 @@ public:
    // Getters (SAM format, 1-based positions)
    const std::string &GetQNAME() const { return qname; }
    uint16_t GetFLAG() const { return flag; }
-   std::string GetRNAME() const;
+   const std::string &GetRNAME() const;
    int32_t GetREFID() const { return refid; }
    int32_t GetPOS() const { return pos + 1; } // Convert back to 1-based for SAM
    uint8_t GetMAPQ() const { return mapq; }
    std::string GetCIGAR() const;
-   std::string GetRNEXT() const;
+   const std::string &GetRNEXT() const;
    int32_t GetREFNEXT() const { return refnext; }
    int32_t GetPNEXT() const { return pnext + 1; } // Convert back to 1-based for SAM
    int32_t GetTLEN() const { return tlen; }
@@ -196,6 +196,13 @@ public:
    const std::vector<std::string> &GetTags() const { return tags; }
    int GetNOPT() const { return static_cast<int>(tags.size()); }
    const std::string &GetOPT(int idx) const { return tags[idx]; }
+
+   // Streaming counterparts of GetCIGAR/GetSEQ/GetQUAL. A writer walking millions
+   // of records appends straight into its own buffer instead of paying for a
+   // temporary std::string, and its heap allocation, per field per record.
+   void AppendCIGAR(std::string &out) const;
+   void AppendSEQ(std::string &out) const;
+   void AppendQUAL(std::string &out) const;
 
    // Return sequence length without decoding (fast)
    int GetSEQLEN() const;
@@ -252,34 +259,18 @@ private:
 namespace RAMNTupleUtils {
 std::string EncodeSequence(const std::string &seq);
 std::string DecodeSequence(const char *packed, size_t packed_size, size_t length);
+/// Appends the decoded bases to \a out; the DecodeSequence above wraps this.
+void AppendSequence(const char *packed, size_t packed_size, size_t length, std::string &out);
 
 std::string EncodeQuality(const std::string &qual, uint32_t compression_flags);
 std::string DecodeQuality(const std::string &encoded_qual, uint32_t compression_flags);
+void AppendQuality(const std::string &encoded_qual, uint32_t compression_flags, std::string &out);
 
 /// Returns an empty vector and logs an error if the CIGAR is malformed.
 std::vector<uint32_t> ParseCIGAR(const std::string &cigar_str);
 std::string FormatCIGAR(const std::vector<uint32_t> &cigar_ops);
+void AppendCIGAR(const std::vector<uint32_t> &cigar_ops, std::string &out);
 
 extern const uint8_t kIlluminaBinning[256];
 } // namespace RAMNTupleUtils
-/**
- * \class RAMNTupleConverter
- * \brief High-level conversion and utility functions for RAM RNTuple files.
- *
- * Provides one-call helpers for converting between SAM text and RAMNTuple
- * binaries, building an index, or viewing a genomic region – functionality
- * reused by several command-line tools in `tools/`.
- */
-class RAMNTupleConverter {
-public:
-   static void ConvertSAMToRAMNTuple(const std::string &sam_file, const std::string &ram_file,
-                                     uint32_t compression_flags = RAMNTupleRecord::kPhred33);
-
-   static void ConvertRAMNTupleToSAM(const std::string &ram_file, const std::string &sam_file);
-
-   static void BuildIndex(const std::string &ram_file);
-
-   static void ViewRegion(const std::string &ram_file, const std::string &region);
-};
-
 #endif
