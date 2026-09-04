@@ -1,3 +1,6 @@
+#ifndef GITHUB_WORKSPACE_INC_RNTUPLE_LINKDEF_H
+#define GITHUB_WORKSPACE_INC_RNTUPLE_LINKDEF_H
+
 #ifdef __CLING__
 #pragma link off all globals;
 #pragma link off all classes;
