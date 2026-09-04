@@ -53,6 +53,7 @@ const std::vector<std::string> RegionQueryFixture::regions_ = {"chr1:1000000-100
                                                                "chr17:41196312-41277500",
                                                                "chr13:32889611-32973805"};
 
+// NOLINTNEXTLINE(misc-use-internal-linkage)
 BENCHMARK_DEFINE_F(RegionQueryFixture, RNTuple)(benchmark::State &state)
 {
    if (rntuple_root_file_.empty()) {

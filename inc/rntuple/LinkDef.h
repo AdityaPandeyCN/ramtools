@@ -3,7 +3,7 @@
 #pragma link off all classes;
 #pragma link off all functions;
 
-#pragma link C++ class RAMNTupleRecord+;
-#pragma link C++ class RAMNTupleIndex+;
+#pragma link C++ class RAMNTupleRecord + ;
+#pragma link C++ class RAMNTupleIndex + ;
 
 #endif

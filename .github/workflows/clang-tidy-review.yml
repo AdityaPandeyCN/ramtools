@@ -50,6 +50,7 @@ jobs:
             --extra-arg=-I${{ github.workspace }}/inc
             --extra-arg=-I/opt/root/include
             --extra-arg=-I${{ github.workspace }}/build/test/googletest-prefix/src/googletest/googletest/include
+            --extra-arg=-I${{ github.workspace }}/build/benchmark/googlebenchmark-prefix/src/googlebenchmark/include
           cmake_command: >
             bash -x -c '
             source /opt/root/bin/thisroot.sh &&
@@ -63,7 +64,7 @@ jobs:
             -DRAMTOOLS_BUILD_TOOLS=ON
             -DRAMTOOLS_BUILD_BENCHMARKS=ON &&
             cd build &&
-            cmake --build . --target googletest --parallel $(nproc --all) || true'
+            cmake --build . --target googletest googlebenchmark --parallel $(nproc --all) || true'
 
       - name: Upload artifacts
         if: always()
