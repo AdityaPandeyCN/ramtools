@@ -179,17 +179,11 @@ Long64_t ramntupleview(const char *file, const char *query, bool /*cache*/, bool
          break;
 
       const int pos = posView(i);
-      // Coordinate-sorted, so nothing after this can start inside the region.
       if (pos > re)
          break;
 
-      // pos <= re is guaranteed by the break above, so a read starting at or
-      // after rs overlaps without needing its span decoded.
-      if (pos >= rs) {
+      if (pos >= rs || pos + computeRefSpan(cigarView(i)) - 1 >= rs)
          count++;
-      } else if (pos + computeRefSpan(cigarView(i)) - 1 >= rs) {
-         count++;
-      }
    }
 
    stopwatch.Print();

@@ -203,15 +203,16 @@ TEST_F(ramcoreTest, RegionQueryReturnsAllOverlappingAlignments)
    const char *customSam = "test_flags.sam";
    const char *rntupleFile = "test_flags.root";
 
+   const std::string seq(50, 'A');
+
    {
       std::ofstream sam(customSam);
       sam << "@HD\tVN:1.6\tSO:coordinate\n";
       sam << "@SQ\tSN:chr1\tLN:1000\n";
-      sam << "primary\t0\tchr1\t100\t60\t50M\t*\t0\t0\tACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTAC\t*\n";
-      sam << "unmapped\t4\tchr1\t100\t0\t*\t*\t0\t0\tACGTACGTAC\t*\n";
-      sam << "secondary\t256\tchr1\t150\t60\t50M\t*\t0\t0\tACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTAC\t*\n";
-      sam
-         << "supplementary\t2048\tchr1\t200\t60\t50M\t*\t0\t0\tACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTAC\t*\n";
+      sam << "primary\t0\tchr1\t100\t60\t50M\t*\t0\t0\t" << seq << "\t*\n";
+      sam << "unmapped\t4\tchr1\t100\t0\t*\t*\t0\t0\t" << std::string(10, 'A') << "\t*\n";
+      sam << "secondary\t256\tchr1\t150\t60\t50M\t*\t0\t0\t" << seq << "\t*\n";
+      sam << "supplementary\t2048\tchr1\t200\t60\t50M\t*\t0\t0\t" << seq << "\t*\n";
    }
 
    samtoramntuple(customSam, rntupleFile, false, false, false, 505, 0);

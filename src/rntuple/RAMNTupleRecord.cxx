@@ -613,17 +613,20 @@ std::vector<uint32_t> ParseCIGAR(const std::string &cigar_str)
 
    uint64_t length = 0;
    bool have_length = false;
-   bool ok = true;
+
+   auto fail = [&]() {
+      ::Error("ParseCIGAR", "malformed CIGAR '%s'", cigar_str.c_str());
+      cigar_ops.clear();
+      return cigar_ops;
+   };
 
    for (char c : cigar_str) {
       if (c >= '0' && c <= '9') {
          length = length * 10 + static_cast<uint64_t>(c - '0');
          // Bounded here rather than by std::stoul, which threw std::out_of_range
          // on a long run of digits and took the whole conversion down with it.
-         if (length > kMaxCigarOpLen) {
-            ok = false;
-            break;
-         }
+         if (length > kMaxCigarOpLen)
+            return fail();
          have_length = true;
          continue;
       }
@@ -631,21 +634,16 @@ std::vector<uint32_t> ParseCIGAR(const std::string &cigar_str)
       const uint8_t op = kCigarToCode[static_cast<uint8_t>(c)];
       // An unrecognised operator used to index a zero-filled table and come back
       // as 0 -- 'M' -- so "10Q" was silently stored as ten matches.
-      if (op == kCigarCodeInvalid || !have_length) {
-         ok = false;
-         break;
-      }
+      if (op == kCigarCodeInvalid || !have_length)
+         return fail();
 
       cigar_ops.push_back((static_cast<uint32_t>(length) << 4) | op);
       length = 0;
       have_length = false;
    }
 
-   // Digits left over mean a length with no operator ("100M5").
-   if (!ok || have_length) {
-      ::Error("ParseCIGAR", "malformed CIGAR '%s'", cigar_str.c_str());
-      cigar_ops.clear();
-   }
+   if (have_length)
+      return fail();
    return cigar_ops;
 }
 
