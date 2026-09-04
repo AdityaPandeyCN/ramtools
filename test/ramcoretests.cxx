@@ -2,8 +2,6 @@
 #include <ROOT/RNTupleReader.hxx>
 #include <ROOT/RNTupleView.hxx>
 #include <Rtypes.h>
-#include <TFile.h>
-#include <TTree.h>
 #include <array>
 #include <cstdint>
 #include <cstdio>
@@ -16,12 +14,10 @@
 #include <limits>
 #include <string>
 #include "../benchmark/generate_sam_benchmark.h"
-#include "../tools/ramview.cxx"
 #include "ramcore/RAMNTupleView.h"
 #include "ramcore/SamParser.h"
 #include "ramcore/SamToNTuple.h"
 #include "rntuple/RAMNTupleRecord.h"
-#include "ramcore/SamToTTree.h"
 namespace {
 
 const RAMNTupleViewOpts opts = {true, false, ""};
@@ -33,14 +29,12 @@ protected:
    void SetUp() override
    {
       GenerateSAMFile("samexample.sam", 100);
-      std::remove("test_ttree.root");
       std::remove("test_rntuple.root");
    }
 
    // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
    void TearDown() override
    {
-      std::remove("test_ttree.root");
       std::remove("test_rntuple.root");
       std::remove("samexample.sam");
       std::remove(kParserTestFile);
@@ -78,26 +72,16 @@ protected:
    }
 };
 
-TEST_F(ramcoreTest, ConversionProducesEqualEntries)
+TEST_F(ramcoreTest, ConversionProducesExpectedEntries)
 {
    const char *samFile = "samexample.sam";
-   const char *ttreeFile = "test_ttree.root";
    const char *rntupleFile = "test_rntuple.root";
 
-   samtoram(samFile, ttreeFile, true, true, true, 1, 0);
    samtoramntuple(samFile, rntupleFile, true, true, true, 505, 0);
 
-   auto ft = std::unique_ptr<TFile>(TFile::Open(ttreeFile));
-   ASSERT_TRUE(ft && !ft->IsZombie());
-
-   auto ttree = dynamic_cast<TTree *>(ft->Get("RAM"));
-   Long64_t ttreeEntries = ttree->GetEntries();
-
    auto reader = ROOT::RNTupleReader::Open("RAM", rntupleFile);
-   Long64_t rntupleEntries = reader->GetNEntries();
-
-   EXPECT_EQ(ttreeEntries, rntupleEntries);
-   EXPECT_EQ(ttreeEntries, 100);
+   ASSERT_NE(reader, nullptr);
+   EXPECT_EQ(reader->GetNEntries(), 100);
 }
 
 TEST_F(ramcoreTest, RNTupleViewRegionQueries)

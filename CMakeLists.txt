@@ -25,7 +25,7 @@ if(ENABLE_COVERAGE)
 endif()
 
 set(ROOT_MIN_VERSION 6.26)
-find_package(ROOT ${ROOT_MIN_VERSION} REQUIRED COMPONENTS Core RIO Tree ROOTNTuple ROOTNTupleUtil)
+find_package(ROOT ${ROOT_MIN_VERSION} REQUIRED COMPONENTS Core RIO ROOTNTuple ROOTNTupleUtil)
 
 include(${ROOT_USE_FILE})
 
@@ -39,28 +39,23 @@ set(CMAKE_INSTALL_INCLUDEDIR include)
 
 ROOT_STANDARD_LIBRARY_PACKAGE(ramcore
     HEADERS
-        inc/ttree/RAMRecord.h
-        inc/ttree/Utils.h
-        inc/ttree/CigarOps.h
+        inc/ramcore/CigarOps.h
         inc/rntuple/RAMNTupleRecord.h
         inc/ramcore/SamParser.h
-        inc/ramcore/SamToTTree.h
         inc/ramcore/SamToNTuple.h
+        inc/ramcore/BamtoNTuple.h
         inc/ramcore/RAMNTupleView.h
     SOURCES
-        src/ttree/RAMRecord.cxx
         src/rntuple/RAMNTupleRecord.cxx
         src/ramcore/SamParser.cxx
-        src/ramcore/SamToTTree.cxx
         src/ramcore/SamToNTuple.cxx
         src/ramcore/RAMNTupleView.cxx
         src/ramcore/BamtoNTuple.cxx
     LINKDEF
-        inc/ttree/LinkDef.h
+        inc/rntuple/LinkDef.h
     DEPENDENCIES
         ROOT::Core
         ROOT::RIO
-        ROOT::Tree
         ROOT::ROOTNTuple
         ROOT::ROOTNTupleUtil
     INSTALL_OPTIONS

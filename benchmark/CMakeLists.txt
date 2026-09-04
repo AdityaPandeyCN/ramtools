@@ -1,8 +1,8 @@
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/modules)
 
 if(RAMTOOLS_BUILD_TESTS OR RAMTOOLS_BUILD_BENCHMARKS)
-    add_library(sam_generator STATIC 
-        generate_sam.cxx  
+    add_library(sam_generator STATIC
+        generate_sam.cxx
     )
 
     target_include_directories(sam_generator PUBLIC
@@ -12,16 +12,6 @@ endif()
 
 if(RAMTOOLS_BUILD_BENCHMARKS)
     include(GoogleBenchmark)
-    
-    add_library(ramtools_views STATIC
-        ${CMAKE_SOURCE_DIR}/tools/ramview.cxx
-        ${CMAKE_SOURCE_DIR}/tools/ramntupleview.cxx
-    )
-
-    target_link_libraries(ramtools_views PRIVATE 
-        ramcore 
-        ROOT::TreePlayer
-    )
 
     ROOT_EXECUTABLE(sam_to_ram_benchmark
         sam_to_ram_benchmark.cxx
@@ -45,7 +35,6 @@ if(RAMTOOLS_BUILD_BENCHMARKS)
             benchmark::benchmark
             ramcore
             sam_generator
-            ramtools_views
     )
 
     ROOT_EXECUTABLE(chromosome_split_benchmark
@@ -77,4 +66,3 @@ if(RAMTOOLS_BUILD_BENCHMARKS)
         COMMENT "Running all RAM tools benchmarks"
     )
 endif()
-

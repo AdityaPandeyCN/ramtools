@@ -113,14 +113,13 @@ public:
  * \brief Alignment record stored in the ROOT Experimental RNTuple format.
  *
  * Uses standard C++ containers instead of raw C-style buffers and therefore
- * integrates naturally with the columnar storage back-end.  The data model is
- * equivalent to `RAMRecord` with the same compression options but benefits
- * from RNTuple’s zero-copy reading and automatic schema evolution support.
+ * integrates naturally with the columnar storage back-end. Quality strings can
+ * be stored as Phred+33, Illumina-binned, or dropped.
  *
  * Static managers (`fgRnameRefs`, `fgRnextRefs`, `fgIndex`) provide shared
- * metadata similarly to the TTree implementation.
+ * metadata for reference names and sparse region lookup.
  *
- * \sa RAMNTupleRefs, RAMNTupleIndex, RAMRecord
+ * \sa RAMNTupleRefs, RAMNTupleIndex
  */
 class RAMNTupleRecord {
 public:
@@ -239,7 +238,7 @@ private:
 };
 
 // CIGAR operation codes (from BAM format)
-#include "ttree/CigarOps.h"
+#include "ramcore/CigarOps.h"
 
 // Sequence and Quality utilities
 namespace RAMNTupleUtils {

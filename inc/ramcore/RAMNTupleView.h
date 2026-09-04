@@ -1,6 +1,7 @@
 #ifndef RAMCORE_RAMNTUPLEVIEW_H
 #define RAMCORE_RAMNTUPLEVIEW_H
 #include <Rtypes.h>
+#include <string>
 struct RAMNTupleViewOpts {
    bool fCache = true;
    bool fPerfStats = false;

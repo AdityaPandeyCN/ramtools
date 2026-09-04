@@ -57,12 +57,6 @@ flags:
       - "inc/rntuple/**"
     carryforward: true
     
-  ttree:
-    paths:
-      - "src/ttree/**"
-      - "inc/ttree/**"
-    carryforward: true
-    
   tools:
     paths:
       - "tools/**"

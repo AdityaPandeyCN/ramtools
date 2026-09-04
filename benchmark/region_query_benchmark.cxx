@@ -1,34 +1,29 @@
 #include <benchmark/benchmark.h>
 #include "benchmark_utils.h"
 #include "ramcore/RAMNTupleView.h"
-#include "ramcore/SamToTTree.h"
-#include "ramcore/SamToNTuple.h"
 #include <string>
 #include <cstdio>
+#include <cstdlib>
 #include <vector>
-#include <Rtypes.h>
+#include <cstdint>
 
-Long64_t ramview(const char *file, const char *query, bool cache = true, bool perfstats = false,
-                 const char *perfstatsfilename = "perf.root");
-Long64_t ramntupleview(const char *file, const char *query, RAMNTupleViewOpts &opts);
-
+// File comes from the environment so the numbers are reproducible on any
+// machine. A hard-coded path is not a benchmark result.
+//
+//   RAMTOOLS_BENCH_RNTUPLE   RAM file written by samtoramntuple   (required)
 class RegionQueryFixture : public benchmark::Fixture {
 public:
    void SetUp(const benchmark::State &state) override
    {
       region_idx_ = static_cast<int>(state.range(0));
-
-      sam_file_ = "/media/aditya/213e0e46-6f86-4288-8b79-74851c34314f/output_big.sam";
-      ttree_root_file_ = "/media/aditya/213e0e46-6f86-4288-8b79-74851c34314f/output_big_lzma.root";
-      rntuple_root_file_ = "/media/aditya/213e0e46-6f86-4288-8b79-74851c34314f/output_root.root";
+      const char *value = std::getenv("RAMTOOLS_BENCH_RNTUPLE");
+      rntuple_root_file_ = (value && *value) ? value : "";
    }
 
    void TearDown(const benchmark::State &) override {}
 
 protected:
    int region_idx_;
-   std::string sam_file_;
-   std::string ttree_root_file_;
    std::string rntuple_root_file_;
 
    static const std::vector<std::string> regions_;
@@ -58,34 +53,21 @@ const std::vector<std::string> RegionQueryFixture::regions_ = {"chr1:1000000-100
                                                                "chr17:41196312-41277500",
                                                                "chr13:32889611-32973805"};
 
-BENCHMARK_DEFINE_F(RegionQueryFixture, TTree)(benchmark::State &state)
-{
-   const char *region = get_current_region();
-   int64_t total_reads_processed = 0;
-   Long64_t reads_in_this_run = 0;
-
-   for (auto _ : state) {
-      suppress_output();
-      reads_in_this_run = ramview(ttree_root_file_.c_str(), region, true, false, "perf.root");
-      restore_output();
-
-      total_reads_processed += reads_in_this_run;
-   }
-
-   state.SetItemsProcessed(total_reads_processed);
-   state.counters["region_idx"] = region_idx_;
-   state.SetLabel(std::to_string(reads_in_this_run) + " reads");
-}
-
 BENCHMARK_DEFINE_F(RegionQueryFixture, RNTuple)(benchmark::State &state)
 {
+   if (rntuple_root_file_.empty()) {
+      state.SkipWithError("set RAMTOOLS_BENCH_RNTUPLE to a file written by samtoramntuple");
+      return;
+   }
+
    const char *region = get_current_region();
    int64_t total_reads_processed = 0;
-   Long64_t reads_in_this_run = 0;
+   std::int64_t reads_in_this_run = 0;
+   const RAMNTupleViewOpts opts{};
 
    for (auto _ : state) {
       suppress_output();
-      reads_in_this_run = ramntupleview(rntuple_root_file_.c_str(), region, {true, false, "perf.root"});
+      reads_in_this_run = ramntupleview(rntuple_root_file_.c_str(), region, opts);
       restore_output();
 
       total_reads_processed += reads_in_this_run;
@@ -95,8 +77,6 @@ BENCHMARK_DEFINE_F(RegionQueryFixture, RNTuple)(benchmark::State &state)
    state.counters["region_idx"] = region_idx_;
    state.SetLabel(std::to_string(reads_in_this_run) + " reads");
 }
-
-BENCHMARK_REGISTER_F(RegionQueryFixture, TTree)->Args({0})->Args({3})->Args({6})->Args({9})->Unit(benchmark::kSecond);
 
 BENCHMARK_REGISTER_F(RegionQueryFixture, RNTuple)->Args({0})->Args({3})->Args({6})->Args({9})->Unit(benchmark::kSecond);
 
