@@ -24,6 +24,7 @@
 #include "ramcore/SamToTTree.h"
 namespace {
 
+const RAMNTupleViewOpts opts = {true, false, ""};
 class ramcoreTest : public ::testing::Test {
 protected:
    static constexpr const char *kParserTestFile = "test_sam_parser_validation.sam";
@@ -103,41 +104,40 @@ TEST_F(ramcoreTest, RNTupleViewRegionQueries)
 {
    const char *rntupleFile = "test_rntuple.root";
    samtoramntuple("samexample.sam", rntupleFile, true, true, true, 505, 0);
-
-   Long64_t hit = ramntupleview(rntupleFile, "chr1:1-1000000", true, false, nullptr);
+   Long64_t hit = ramntupleview(rntupleFile, "chr1:1-1000000", opts);
    EXPECT_GE(hit, 0);
 
-   Long64_t miss = ramntupleview(rntupleFile, "chrNonExistent:1-100", true, false, nullptr);
+   Long64_t miss = ramntupleview(rntupleFile, "chrNonExistent:1-100", opts);
    EXPECT_EQ(miss, 0);
 
-   Long64_t wildcard = ramntupleview(rntupleFile, "*", true, false, nullptr);
+   Long64_t wildcard = ramntupleview(rntupleFile, "*", opts);
    EXPECT_EQ(wildcard, 100);
 
-   Long64_t empty = ramntupleview(rntupleFile, "", true, false, nullptr);
+   Long64_t empty = ramntupleview(rntupleFile, "", opts);
    EXPECT_EQ(empty, 100);
 
-   Long64_t null = ramntupleview(rntupleFile, nullptr, true, false, nullptr);
+   Long64_t null = ramntupleview(rntupleFile, nullptr, opts);
    EXPECT_EQ(null, 100);
 
-   Long64_t whole = ramntupleview(rntupleFile, "chr1", true, false, nullptr);
+   Long64_t whole = ramntupleview(rntupleFile, "chr1", opts);
    EXPECT_GE(whole, 0);
 
-   Long64_t single = ramntupleview(rntupleFile, "chr1:500", true, false, nullptr);
+   Long64_t single = ramntupleview(rntupleFile, "chr1:500", opts);
    EXPECT_GE(single, 0);
 
-   Long64_t invalid = ramntupleview(rntupleFile, "chr1:abc-def", true, false, nullptr);
+   Long64_t invalid = ramntupleview(rntupleFile, "chr1:abc-def", opts);
    EXPECT_EQ(invalid, 0);
 
-   Long64_t lateChr = ramntupleview(rntupleFile, "chrX:1-100", true, false, nullptr);
+   Long64_t lateChr = ramntupleview(rntupleFile, "chrX:1-100", opts);
    EXPECT_GE(lateChr, 0);
 
-   Long64_t zeroStart = ramntupleview(rntupleFile, "chr1:0-100", true, false, nullptr);
+   Long64_t zeroStart = ramntupleview(rntupleFile, "chr1:0-100", opts);
    EXPECT_GE(zeroStart, 0);
 }
 
 TEST_F(ramcoreTest, RNTupleViewOpenFailure)
 {
-   Long64_t count = ramntupleview("nonexistent_file.root", "chr1:1-100", true, false, nullptr);
+   Long64_t count = ramntupleview("nonexistent_file.root", "chr1:1-100", opts);
    EXPECT_EQ(count, 0);
 }
 
@@ -185,10 +185,10 @@ TEST_F(ramcoreTest, RNTupleViewCigarOverlap)
 
    samtoramntuple(customSam, rntupleFile, false, false, false, 505, 0);
 
-   EXPECT_EQ(ramntupleview(rntupleFile, "chr1:140-160", true, false, nullptr), 1);
-   EXPECT_EQ(ramntupleview(rntupleFile, "chr1:201-210", true, false, nullptr), 0);
-   EXPECT_EQ(ramntupleview(rntupleFile, "chr1:50-110", true, false, nullptr), 1);
-   EXPECT_EQ(ramntupleview(rntupleFile, "chr1:1-50", true, false, nullptr), 0);
+   EXPECT_EQ(ramntupleview(rntupleFile, "chr1:140-160", opts), 1);
+   EXPECT_EQ(ramntupleview(rntupleFile, "chr1:201-210", opts), 0);
+   EXPECT_EQ(ramntupleview(rntupleFile, "chr1:50-110", opts), 1);
+   EXPECT_EQ(ramntupleview(rntupleFile, "chr1:1-50", opts), 0);
 
    std::remove(customSam);
    std::remove(rntupleFile);
@@ -217,7 +217,7 @@ TEST_F(ramcoreTest, RegionQueryReturnsAllOverlappingAlignments)
 
    samtoramntuple(customSam, rntupleFile, false, false, false, 505, 0);
 
-   EXPECT_EQ(ramntupleview(rntupleFile, "chr1:1-500", true, false, nullptr), 4)
+   EXPECT_EQ(ramntupleview(rntupleFile, "chr1:1-500", opts), 4)
       << "every alignment placed over the region must be reported";
 
    std::remove(customSam);
@@ -251,7 +251,7 @@ TEST_F(ramcoreTest, RegionQueryFindsReadsStartingBeforeTheIndexAnchor)
 
    samtoramntuple(customSam, rntupleFile, /*index=*/true, false, false, 505, 0);
 
-   EXPECT_EQ(ramntupleview(rntupleFile, "chr1:160000-160100", true, false, nullptr), 2)
+   EXPECT_EQ(ramntupleview(rntupleFile, "chr1:160000-160100", opts), 2)
       << "the spanning read overlaps the region and must not be skipped";
 
    std::remove(customSam);
@@ -461,10 +461,10 @@ TEST_F(ramcoreTest, SmartIndexSkipsUnmappedReads)
 
    samtoramntuple(customSam, rntupleFile, true, false, false, 505, 0);
 
-   Long64_t count = ramntupleview(rntupleFile, "chr1:900-2100", true, false, nullptr);
+   Long64_t count = ramntupleview(rntupleFile, "chr1:900-2100", opts);
    EXPECT_EQ(count, 2) << "Both mapped reads should be queryable";
 
-   Long64_t unmapped = ramntupleview(rntupleFile, "*:0-100", true, false, nullptr);
+   Long64_t unmapped = ramntupleview(rntupleFile, "*:0-100", opts);
    EXPECT_EQ(unmapped, 0) << "Unmapped reads should not appear in index queries";
 
    std::remove(customSam);
@@ -491,10 +491,10 @@ TEST_F(ramcoreTest, SmartIndexCreatesEntryAtChromosomeBoundary)
 
    samtoramntuple(customSam, rntupleFile, true, false, false, 505, 0);
 
-   Long64_t chr1_hits = ramntupleview(rntupleFile, "chr1:1000-6000", true, false, nullptr);
+   Long64_t chr1_hits = ramntupleview(rntupleFile, "chr1:1000-6000", opts);
    EXPECT_GT(chr1_hits, 0) << "chr1 reads should be queryable";
 
-   Long64_t chr2_hits = ramntupleview(rntupleFile, "chr2:500-5500", true, false, nullptr);
+   Long64_t chr2_hits = ramntupleview(rntupleFile, "chr2:500-5500", opts);
    EXPECT_GT(chr2_hits, 0) << "chr2 reads should be immediately queryable at boundary";
 
    std::remove(customSam);
@@ -518,11 +518,10 @@ TEST_F(ramcoreTest, SmartIndexRespectsPositionInterval)
    }
 
    samtoramntuple(customSam, rntupleFile, true, false, false, 505, 0);
-
-   Long64_t cluster = ramntupleview(rntupleFile, "chr1:900-1100", true, false, nullptr);
+   Long64_t cluster = ramntupleview(rntupleFile, "chr1:900-1100", opts);
    EXPECT_EQ(cluster, 200);
 
-   Long64_t far = ramntupleview(rntupleFile, "chr1:49900-50100", true, false, nullptr);
+   Long64_t far = ramntupleview(rntupleFile, "chr1:49900-50100", opts);
    EXPECT_EQ(far, 1) << "Distant read should be indexed via position interval";
 
    std::remove(customSam);
