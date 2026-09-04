@@ -152,6 +152,10 @@ public:
    static std::unique_ptr<RAMNTupleRefs> fgRnextRefs;
    static std::unique_ptr<RAMNTupleIndex> fgIndex;
 
+   /// Longest reference span of any alignment in the file, so a region query
+   /// knows how far before the region a read may start. 0 means unrecorded.
+   static uint32_t fgMaxRefSpan;
+
 public:
    RAMNTupleRecord();
    ~RAMNTupleRecord() = default;
@@ -194,12 +198,7 @@ public:
    const std::string &GetOPT(int idx) const { return tags[idx]; }
 
    // Return sequence length without decoding (fast)
-   int GetSEQLEN() const
-   {
-      if (seq.size() < 4)
-         return 0;
-      return *reinterpret_cast<const uint32_t *>(seq.data());
-   }
+   int GetSEQLEN() const;
 
    size_t GetNCIGAROP() const { return cigar.size(); }
    int32_t GetCIGAROPLEN(size_t idx) const;
@@ -212,6 +211,14 @@ public:
 
    // Static managers
    static void InitializeRefs();
+   static uint32_t GetMaxRefSpan() { return fgMaxRefSpan; }
+   static void NoteRefSpan(uint32_t span)
+   {
+      if (span > fgMaxRefSpan)
+         fgMaxRefSpan = span;
+   }
+   /// Reference bases covered by this record's CIGAR (0 when it has none).
+   uint32_t GetRefSpan() const;
    static RAMNTupleRefs *GetRnameRefs() { return fgRnameRefs.get(); }
    static RAMNTupleRefs *GetRnextRefs() { return fgRnextRefs.get(); }
    static RAMNTupleIndex *GetIndex() { return fgIndex.get(); }
@@ -244,11 +251,12 @@ private:
 // Sequence and Quality utilities
 namespace RAMNTupleUtils {
 std::string EncodeSequence(const std::string &seq);
-std::string DecodeSequence(const std::string &encoded_seq, size_t length);
+std::string DecodeSequence(const char *packed, size_t packed_size, size_t length);
 
 std::string EncodeQuality(const std::string &qual, uint32_t compression_flags);
 std::string DecodeQuality(const std::string &encoded_qual, uint32_t compression_flags);
 
+/// Returns an empty vector and logs an error if the CIGAR is malformed.
 std::vector<uint32_t> ParseCIGAR(const std::string &cigar_str);
 std::string FormatCIGAR(const std::vector<uint32_t> &cigar_ops);
 

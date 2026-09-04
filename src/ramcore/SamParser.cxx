@@ -44,6 +44,18 @@ bool ParseInt(const char *value, int &out, const char *field_name, size_t line_n
    return true;
 }
 
+// Every mandatory column holds at least one character, so an empty one means the
+// line is malformed -- usually a stray tab shifting the later columns.
+bool RequireNonEmpty(const char *value, const char *field_name, size_t line_number)
+{
+   if (value && *value != '\0') {
+      return true;
+   }
+   std::cerr << "[SamParser] Warning: empty value for field '" << field_name << "' at line " << line_number
+             << "; record skipped.\n";
+   return false;
+}
+
 } // namespace
 
 // NOLINTNEXTLINE(misc-use-internal-linkage)
@@ -67,22 +79,31 @@ bool SamParser::ParseFile(const char *filename, HeaderCallback header_cb, Record
    lines_processed_ = 0;
    records_processed_ = 0;
 
-   char line[kMaxLineLength];
+   // getline() grows its buffer to fit the line. A fixed buffer splits longer
+   // records into fragments that then parse as separate malformed records, so
+   // the read is lost outright -- and PacBio/ONT lines routinely exceed 100 kB.
+   char *line = nullptr;
+   size_t capacity = 0;
+
    SamRecord record;
 
-   while (fgets(line, kMaxLineLength, fp)) {
+   while (getline(&line, &capacity, fp) != -1) {
       lines_processed_++;
+
+      StripCRLF(line);
+
+      if (line[0] == '\0') { // blank line, not a record
+         continue;
+      }
 
       if (line[0] == '@') {
          char *tab = strchr(line, '\t');
          if (tab) {
             *tab = '\0';
-            StripCRLF(tab + 1);
             if (header_cb) {
                header_cb(line, tab + 1);
             }
          } else {
-            StripCRLF(line);
             if (header_cb) {
                header_cb(line, "");
             }
@@ -99,6 +120,7 @@ bool SamParser::ParseFile(const char *filename, HeaderCallback header_cb, Record
       }
    }
 
+   free(line);
    fclose(fp);
    return true;
 }
@@ -106,16 +128,37 @@ bool SamParser::ParseFile(const char *filename, HeaderCallback header_cb, Record
 bool SamParser::ParseLine(char *line, SamRecord &record)
 {
    int field_num = 0;
-   char *token = strtok(line, "\t");
+   char *cursor = line;
+   bool last_field = false;
 
-   while (token) {
+   // Split on TAB without collapsing runs of delimiters: "a\t\tb" is three
+   // fields, the middle one empty. strtok() reported two and shifted every later
+   // column left, so QUAL would be read as SEQ.
+   while (!last_field) {
+      char *token = cursor;
+      char *tab = strchr(cursor, '\t');
+      if (tab) {
+         *tab = '\0';
+         cursor = tab + 1;
+      } else {
+         last_field = true;
+      }
+
       switch (field_num) {
-      case 0: record.qname = token; break;
+      case 0:
+         if (!RequireNonEmpty(token, "qname", lines_processed_))
+            return false;
+         record.qname = token;
+         break;
       case 1:
          if (!ParseInt(token, record.flag, "flag", lines_processed_, 0, std::numeric_limits<unsigned short>::max()))
             return false;
          break;
-      case 2: record.rname = token; break;
+      case 2:
+         if (!RequireNonEmpty(token, "rname", lines_processed_))
+            return false;
+         record.rname = token;
+         break;
       case 3:
          if (!ParseInt(token, record.pos, "pos", lines_processed_, 0, std::numeric_limits<int>::max()))
             return false;
@@ -124,8 +167,16 @@ bool SamParser::ParseLine(char *line, SamRecord &record)
          if (!ParseInt(token, record.mapq, "mapq", lines_processed_, 0, std::numeric_limits<unsigned char>::max()))
             return false;
          break;
-      case 5: record.cigar = token; break;
-      case 6: record.rnext = token; break;
+      case 5:
+         if (!RequireNonEmpty(token, "cigar", lines_processed_))
+            return false;
+         record.cigar = token;
+         break;
+      case 6:
+         if (!RequireNonEmpty(token, "rnext", lines_processed_))
+            return false;
+         record.rnext = token;
+         break;
       case 7:
          if (!ParseInt(token, record.pnext, "pnext", lines_processed_, 0, std::numeric_limits<int>::max()))
             return false;
@@ -135,22 +186,29 @@ bool SamParser::ParseLine(char *line, SamRecord &record)
                        std::numeric_limits<int>::max()))
             return false;
          break;
-      case 9: record.seq = token; break;
+      case 9:
+         if (!RequireNonEmpty(token, "seq", lines_processed_))
+            return false;
+         record.seq = token;
+         break;
       case 10:
-         StripCRLF(token);
+         if (!RequireNonEmpty(token, "qual", lines_processed_))
+            return false;
          record.qual = token;
          break;
-      default:
-         StripCRLF(token);
-         record.optional_fields.push_back(token);
-         break;
+      default: record.optional_fields.push_back(token); break;
       }
 
       field_num++;
-      token = strtok(nullptr, "\t");
    }
 
-   return field_num >= 11;
+   if (field_num < 11) {
+      std::cerr << "[SamParser] Warning: line " << lines_processed_ << " has " << field_num
+                << " fields, at least 11 are required; record skipped.\n";
+      return false;
+   }
+
+   return true;
 }
 
 } // namespace ramcore

@@ -194,26 +194,64 @@ TEST_F(ramcoreTest, RNTupleViewCigarOverlap)
    std::remove(rntupleFile);
 }
 
-TEST_F(ramcoreTest, RNTupleViewFlagFiltering)
+// `samtools view <region>` returns every alignment overlapping the region,
+// secondary and supplementary included -- they cover the locus as much as the
+// primary does. Silently returning a subset makes every count from this format
+// disagree with samtools.
+TEST_F(ramcoreTest, RegionQueryReturnsAllOverlappingAlignments)
 {
    const char *customSam = "test_flags.sam";
    const char *rntupleFile = "test_flags.root";
-   const std::string seq(50, 'A');
 
    {
       std::ofstream sam(customSam);
-      sam << "@HD\tVN:1.6\tSO:unsorted\n";
+      sam << "@HD\tVN:1.6\tSO:coordinate\n";
       sam << "@SQ\tSN:chr1\tLN:1000\n";
-      sam << "primary\t0\tchr1\t100\t60\t50M\t*\t0\t0\t" << seq << "\t*\n";
-      sam << "secondary\t256\tchr1\t100\t60\t50M\t*\t0\t0\t" << seq << "\t*\n";
-      sam << "supplementary\t2048\tchr1\t100\t60\t50M\t*\t0\t0\t" << seq << "\t*\n";
-      sam << "unmapped\t4\tchr1\t100\t0\t50M\t*\t0\t0\t" << seq << "\t*\n";
+      sam << "primary\t0\tchr1\t100\t60\t50M\t*\t0\t0\tACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTAC\t*\n";
+      sam << "unmapped\t4\tchr1\t100\t0\t*\t*\t0\t0\tACGTACGTAC\t*\n";
+      sam << "secondary\t256\tchr1\t150\t60\t50M\t*\t0\t0\tACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTAC\t*\n";
+      sam
+         << "supplementary\t2048\tchr1\t200\t60\t50M\t*\t0\t0\tACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTAC\t*\n";
    }
 
    samtoramntuple(customSam, rntupleFile, false, false, false, 505, 0);
 
-   Long64_t count = ramntupleview(rntupleFile, "chr1:1-500", true, false, nullptr);
-   EXPECT_EQ(count, 1) << "Only primary read should pass FLAG_FILTER";
+   EXPECT_EQ(ramntupleview(rntupleFile, "chr1:1-500", true, false, nullptr), 4)
+      << "every alignment placed over the region must be reported";
+
+   std::remove(customSam);
+   std::remove(rntupleFile);
+}
+
+// The index is sparse, so the entry at or before a region start only
+// approximates where the region's reads begin. A read starting earlier and
+// running long still overlaps; seeking straight to the anchor would step over
+// it. Long reads and spliced RNA-seq alignments make this routine.
+TEST_F(ramcoreTest, RegionQueryFindsReadsStartingBeforeTheIndexAnchor)
+{
+   const char *customSam = "test_span.sam";
+   const char *rntupleFile = "test_span.root";
+
+   {
+      std::ofstream sam(customSam);
+      sam << "@HD\tVN:1.6\tSO:coordinate\n";
+      sam << "@SQ\tSN:chr1\tLN:1000000\n";
+
+      // Starts at 1000 and reaches 201009 through a long intron.
+      sam << "spanning\t0\tchr1\t1000\t60\t10M199990N10M\t*\t0\t0\t" << std::string(20, 'A') << "\t*\n";
+
+      // Enough short reads to put index anchors between it and the query region.
+      const std::string seq(50, 'C');
+      for (int i = 0; i < 300; ++i) {
+         sam << "short" << i << "\t0\tchr1\t" << (150000 + i * 10) << "\t60\t50M\t*\t0\t0\t" << seq << "\t*\n";
+      }
+      sam << "inside\t0\tchr1\t160050\t60\t50M\t*\t0\t0\t" << seq << "\t*\n";
+   }
+
+   samtoramntuple(customSam, rntupleFile, /*index=*/true, false, false, 505, 0);
+
+   EXPECT_EQ(ramntupleview(rntupleFile, "chr1:160000-160100", true, false, nullptr), 2)
+      << "the spanning read overlaps the region and must not be skipped";
 
    std::remove(customSam);
    std::remove(rntupleFile);
