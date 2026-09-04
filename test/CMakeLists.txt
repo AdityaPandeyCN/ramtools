@@ -7,9 +7,7 @@ function(add_ramcore_test test_name)
         LIBRARIES
             ramcore
             ROOT::Core
-            ROOT::Tree
             ROOT::ROOTNTuple
-            ROOT::TreePlayer
             ROOT::RIO
             sam_generator
             gtest
