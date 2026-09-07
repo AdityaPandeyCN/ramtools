@@ -7,11 +7,13 @@
 #include <TError.h>
 #include <TFile.h>
 #include <algorithm>
+#include <array>
 #include <sstream>
 #include <iostream>
 #include <fstream>
 #include <cstring>
 #include <cctype>
+#include <string_view>
 
 using namespace ROOT;
 
@@ -20,12 +22,13 @@ std::unique_ptr<RAMNTupleRefs> RAMNTupleRecord::fgRnextRefs = nullptr;
 std::unique_ptr<RAMNTupleIndex> RAMNTupleRecord::fgIndex = nullptr;
 uint32_t RAMNTupleRecord::fgMaxRefSpan = 0;
 
-static const char *kCodeToSeq = "=ACMGRSVTWYHKDBN";
+static constexpr std::array<char, 16> kCodeToSeq{'=', 'A', 'C', 'M', 'G', 'R', 'S', 'V',
+                                                 'T', 'W', 'Y', 'H', 'K', 'D', 'B', 'N'};
 static uint8_t kSeqToCode[256] = {0};
 static bool kSeqTableInit = false;
 
 // CIGAR encoding/decoding tables
-static const char *kCodeToCigar = "MIDNSHP=X";
+static constexpr std::array<char, 9> kCodeToCigar{'M', 'I', 'D', 'N', 'S', 'H', 'P', '=', 'X'};
 static uint8_t kCigarToCode[256] = {0};
 static bool kCigarTableInit = false;
 
@@ -44,18 +47,21 @@ static constexpr uint32_t kMaxCigarOpLen = 0x0FFFFFFF;
 // byte order is part of the format and reads need no aligned load.
 static void StoreLE32(char *dst, uint32_t value)
 {
-   dst[0] = static_cast<char>(value & 0xFF);
-   dst[1] = static_cast<char>((value >> 8) & 0xFF);
-   dst[2] = static_cast<char>((value >> 16) & 0xFF);
-   dst[3] = static_cast<char>((value >> 24) & 0xFF);
+   const std::array<unsigned char, 4> bytes{
+      static_cast<unsigned char>(value & 0xFF),
+      static_cast<unsigned char>((value >> 8) & 0xFF),
+      static_cast<unsigned char>((value >> 16) & 0xFF),
+      static_cast<unsigned char>((value >> 24) & 0xFF),
+   };
+   std::memcpy(dst, bytes.data(), bytes.size());
 }
 
 static uint32_t LoadLE32(const char *src)
 {
-   return static_cast<uint32_t>(static_cast<unsigned char>(src[0])) |
-          (static_cast<uint32_t>(static_cast<unsigned char>(src[1])) << 8) |
-          (static_cast<uint32_t>(static_cast<unsigned char>(src[2])) << 16) |
-          (static_cast<uint32_t>(static_cast<unsigned char>(src[3])) << 24);
+   std::array<unsigned char, 4> bytes{};
+   std::memcpy(bytes.data(), src, bytes.size());
+   return static_cast<uint32_t>(bytes[0]) | (static_cast<uint32_t>(bytes[1]) << 8) |
+          (static_cast<uint32_t>(bytes[2]) << 16) | (static_cast<uint32_t>(bytes[3]) << 24);
 }
 
 // Illumina 8-level quality binning: maps Q0-40+ to 8 values (0,1,6,15,22,27,33,37,40)
@@ -472,7 +478,7 @@ void InitializeTables()
 {
    if (!kSeqTableInit) {
       std::memset(kSeqToCode, kSeqCodeUnknown, 256);
-      for (int i = 0; i < 16; i++) {
+      for (size_t i = 0; i < kCodeToSeq.size(); i++) {
          const char base = kCodeToSeq[i];
          kSeqToCode[static_cast<uint8_t>(base)] = static_cast<uint8_t>(i);
          // SAM permits lowercase bases (SEQ is [A-Za-z=.]+).
@@ -483,7 +489,7 @@ void InitializeTables()
 
    if (!kCigarTableInit) {
       std::memset(kCigarToCode, kCigarCodeInvalid, 256);
-      for (int i = 0; i < 9; i++) {
+      for (size_t i = 0; i < kCodeToCigar.size(); i++) {
          kCigarToCode[static_cast<uint8_t>(kCodeToCigar[i])] = static_cast<uint8_t>(i);
       }
       kCigarTableInit = true;
@@ -502,7 +508,7 @@ std::string EncodeSequence(const std::string &seq)
    }
 
    const uint32_t length = static_cast<uint32_t>(seq.length());
-   const size_t encoded_size = 4 + (static_cast<size_t>(length) + 1) / 2;
+   const size_t encoded_size = 4 + ((static_cast<size_t>(length) + 1) / 2);
    std::string encoded;
    encoded.resize(encoded_size);
 
@@ -536,14 +542,15 @@ std::string DecodeSequence(const char *packed, size_t packed_size, size_t length
    std::string seq;
    seq.resize(length);
 
+   const std::string_view packed_bytes(packed, packed_size);
    const size_t pairs = length / 2;
    for (size_t i = 0; i < pairs; i++) {
-      const uint8_t byte = static_cast<uint8_t>(packed[i]);
+      const uint8_t byte = static_cast<uint8_t>(packed_bytes[i]);
       seq[i * 2] = kCodeToSeq[byte >> 4];
       seq[i * 2 + 1] = kCodeToSeq[byte & 0xf];
    }
    if (length % 2) {
-      seq[length - 1] = kCodeToSeq[static_cast<uint8_t>(packed[length / 2]) >> 4];
+      seq[length - 1] = kCodeToSeq[static_cast<uint8_t>(packed_bytes[length / 2]) >> 4];
    }
 
    return seq;

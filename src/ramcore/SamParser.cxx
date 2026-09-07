@@ -130,8 +130,8 @@ bool SamParser::ParseLine(char *line, SamRecord &record)
    int field_num = 0;
    char *cursor = line;
    bool last_field = false;
-   static const char *kMandatory[] = {"qname", "flag", "rname", "pos",  "mapq", "cigar",
-                                      "rnext", "pnext", "tlen", "seq", "qual"};
+   static const char *kMandatory[] = {"qname", "flag",  "rname", "pos", "mapq", "cigar",
+                                      "rnext", "pnext", "tlen",  "seq", "qual"};
 
    // Split on TAB without collapsing runs of delimiters: "a\t\tb" is three
    // fields, the middle one empty. strtok() reported two and shifted every later
