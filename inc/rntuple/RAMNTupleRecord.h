@@ -181,12 +181,12 @@ public:
    // Getters (SAM format, 1-based positions)
    const std::string &GetQNAME() const { return qname; }
    uint16_t GetFLAG() const { return flag; }
-   std::string GetRNAME() const;
+   const std::string &GetRNAME() const;
    int32_t GetREFID() const { return refid; }
    int32_t GetPOS() const { return pos + 1; } // Convert back to 1-based for SAM
    uint8_t GetMAPQ() const { return mapq; }
    std::string GetCIGAR() const;
-   std::string GetRNEXT() const;
+   const std::string &GetRNEXT() const;
    int32_t GetREFNEXT() const { return refnext; }
    int32_t GetPNEXT() const { return pnext + 1; } // Convert back to 1-based for SAM
    int32_t GetTLEN() const { return tlen; }

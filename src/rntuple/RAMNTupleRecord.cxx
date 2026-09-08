@@ -360,12 +360,12 @@ void RAMNTupleRecord::SetRNEXT(const std::string &rnext)
    refnext = fgRnextRefs->GetRefId(rnext);
 }
 
-std::string RAMNTupleRecord::GetRNAME() const
+const std::string &RAMNTupleRecord::GetRNAME() const
 {
    return fgRnameRefs->GetRefName(refid);
 }
 
-std::string RAMNTupleRecord::GetRNEXT() const
+const std::string &RAMNTupleRecord::GetRNEXT() const
 {
    return fgRnextRefs->GetRefName(refnext);
 }
@@ -662,13 +662,12 @@ std::string FormatCIGAR(const std::vector<uint32_t> &cigar_ops)
    if (cigar_ops.empty())
       return "*";
 
-   std::ostringstream oss;
-
+   std::string out{};
    for (uint32_t op : cigar_ops) {
-      oss << (op >> 4) << kCodeToCigar[op & 0xf];
+      out += std::to_string(op >> 4);
+      out += kCodeToCigar.at(op & 0xf);
    }
-
-   return oss.str();
+   return out;
 }
 
 } // namespace RAMNTupleUtils
