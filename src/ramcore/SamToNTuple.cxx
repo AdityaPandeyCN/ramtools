@@ -101,6 +101,7 @@ void samtoramntuple(const char *datafile,
           recordPtr->SetOPT(opt.c_str());
        }
 
+       RAMNTupleRecord::NoteRefSpan(recordPtr->GetRefSpan());
        writer->Fill(*defaultEntry);
 
        // Index building: create a sparse lookup table so region queries can jump
@@ -248,6 +249,7 @@ void samtoramntuple_split_by_chromosome(const char *datafile, const char *output
 
             size_t start = ctx * records_per_context;
             size_t end = std::min(start + records_per_context, records.size());
+            uint32_t max_span = 0;
 
             for (size_t i = start; i < end; ++i) {
                const auto &sam_record = records[i];
@@ -265,6 +267,7 @@ void samtoramntuple_split_by_chromosome(const char *datafile, const char *output
                recordPtr->SetPOS(sam_record.pos);
                recordPtr->SetMAPQ(sam_record.mapq);
                recordPtr->SetCIGAR(sam_record.cigar.c_str());
+               max_span = std::max(max_span, recordPtr->GetRefSpan());
                recordPtr->SetPNEXT(sam_record.pnext);
                recordPtr->SetTLEN(sam_record.tlen);
                recordPtr->SetSEQ(sam_record.seq.c_str());
@@ -277,6 +280,9 @@ void samtoramntuple_split_by_chromosome(const char *datafile, const char *output
 
                fill_context->Fill(*entry);
             }
+
+            std::lock_guard<std::mutex> lock(record_mutex);
+            RAMNTupleRecord::NoteRefSpan(max_span);
          });
       }
 

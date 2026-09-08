@@ -32,6 +32,9 @@ constexpr int64_t kMappedInterval = 100;
 std::string GetSeq(const bam1_t *b)
 {
    const int len = b->core.l_qseq;
+   // A BAM record with no sequence is SEQ "*" in SAM, not an empty column.
+   if (len <= 0)
+      return "*";
    const uint8_t *enc = bam_get_seq(b);
    std::string s(static_cast<std::size_t>(len), 'N');
    for (int i = 0; i < len; ++i)
@@ -42,6 +45,8 @@ std::string GetSeq(const bam1_t *b)
 std::string GetQual(const bam1_t *b)
 {
    const int len = b->core.l_qseq;
+   if (len <= 0)
+      return "*";
    const uint8_t *q = bam_get_qual(b);
    if (q == nullptr || q[0] == 0xff)
       return "*";
@@ -242,6 +247,7 @@ void bamtoramntuple(const char *bamfile, const char *treefile, bool index, bool 
 
    while (sam_read1(bamIn, hdr, rec) >= 0) {
       FillRecord(recordPtr.get(), rec, hdr, quality_policy);
+      RAMNTupleRecord::NoteRefSpan(recordPtr->GetRefSpan());
       writer->Fill(*entry);
 
       if (index && !(rec->core.flag & kUnmapped) && recordPtr->GetREFID() >= 0) {

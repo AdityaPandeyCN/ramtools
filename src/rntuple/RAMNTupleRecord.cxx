@@ -7,26 +7,62 @@
 #include <TError.h>
 #include <TFile.h>
 #include <algorithm>
+#include <array>
 #include <sstream>
 #include <iostream>
 #include <fstream>
 #include <cstring>
 #include <cctype>
+#include <string_view>
 
 using namespace ROOT;
 
 std::unique_ptr<RAMNTupleRefs> RAMNTupleRecord::fgRnameRefs = nullptr;
 std::unique_ptr<RAMNTupleRefs> RAMNTupleRecord::fgRnextRefs = nullptr;
 std::unique_ptr<RAMNTupleIndex> RAMNTupleRecord::fgIndex = nullptr;
+uint32_t RAMNTupleRecord::fgMaxRefSpan = 0;
 
-static const char *kCodeToSeq = "=ACMGRSVTWYHKDBN";
+static constexpr std::array<char, 16> kCodeToSeq{'=', 'A', 'C', 'M', 'G', 'R', 'S', 'V',
+                                                 'T', 'W', 'Y', 'H', 'K', 'D', 'B', 'N'};
 static uint8_t kSeqToCode[256] = {0};
 static bool kSeqTableInit = false;
 
 // CIGAR encoding/decoding tables
-static const char *kCodeToCigar = "MIDNSHP=X";
+static constexpr std::array<char, 9> kCodeToCigar{'M', 'I', 'D', 'N', 'S', 'H', 'P', '=', 'X'};
 static uint8_t kCigarToCode[256] = {0};
 static bool kCigarTableInit = false;
+
+// Any byte that is not a base code maps here. 15 is 'N', as in htslib's
+// seq_nt16_table, so an unrepresentable base degrades to "unknown" rather than
+// to '=' ("identical to the reference").
+static constexpr uint8_t kSeqCodeUnknown = 15;
+
+// Marks a byte that is not one of MIDNSHP=X; 0 would look like a valid 'M'.
+static constexpr uint8_t kCigarCodeInvalid = 0xFF;
+
+// (length << 4) | opcode leaves 28 bits for the length.
+static constexpr uint32_t kMaxCigarOpLen = 0x0FFFFFFF;
+
+// The 4-byte length prefix of a packed sequence, stored little-endian so the
+// byte order is part of the format and reads need no aligned load.
+static void StoreLE32(char *dst, uint32_t value)
+{
+   const std::array<unsigned char, 4> bytes{
+      static_cast<unsigned char>(value & 0xFF),
+      static_cast<unsigned char>((value >> 8) & 0xFF),
+      static_cast<unsigned char>((value >> 16) & 0xFF),
+      static_cast<unsigned char>((value >> 24) & 0xFF),
+   };
+   std::memcpy(dst, bytes.data(), bytes.size());
+}
+
+static uint32_t LoadLE32(const char *src)
+{
+   std::array<unsigned char, 4> bytes{};
+   std::memcpy(bytes.data(), src, bytes.size());
+   return static_cast<uint32_t>(bytes[0]) | (static_cast<uint32_t>(bytes[1]) << 8) |
+          (static_cast<uint32_t>(bytes[2]) << 16) | (static_cast<uint32_t>(bytes[3]) << 24);
+}
 
 // Illumina 8-level quality binning: maps Q0-40+ to 8 values (0,1,6,15,22,27,33,37,40)
 // Reduces quality data ~80% with minimal accuracy loss
@@ -181,6 +217,9 @@ void RAMNTupleRecord::InitializeRefs()
       fgRnextRefs = std::make_unique<RAMNTupleRefs>();
    if (!fgIndex)
       fgIndex = std::make_unique<RAMNTupleIndex>();
+   // Per-file, so a second conversion in the same process does not inherit the
+   // first file's span.
+   fgMaxRefSpan = 0;
 }
 
 std::unique_ptr<RNTupleReader> RAMNTupleRecord::OpenRAMFile(const std::string &filename, const std::string &ntupleName)
@@ -210,6 +249,7 @@ void RAMNTupleRecord::WriteAllRefs(TFile &file)
    auto metaModel = RNTupleModel::Create();
    auto rnameField = metaModel->MakeField<std::vector<std::string>>("rname_refs");
    auto rnextField = metaModel->MakeField<std::vector<std::string>>("rnext_refs");
+   auto spanField = metaModel->MakeField<uint32_t>("max_ref_span");
 
    RNTupleWriteOptions writeOptions;
    writeOptions.SetCompression(505);
@@ -219,8 +259,11 @@ void RAMNTupleRecord::WriteAllRefs(TFile &file)
    auto rnamePtr = metaEntry->GetPtr<std::vector<std::string>>("rname_refs");
    auto rnextPtr = metaEntry->GetPtr<std::vector<std::string>>("rnext_refs");
 
+   auto spanPtr = metaEntry->GetPtr<uint32_t>("max_ref_span");
+
    *rnamePtr = fgRnameRefs->GetRefs();
    *rnextPtr = fgRnextRefs->GetRefs();
+   *spanPtr = fgMaxRefSpan;
    metaWriter->Fill(*metaEntry);
 }
 
@@ -238,6 +281,15 @@ void RAMNTupleRecord::ReadAllRefs(const std::string &filename)
          for (const auto &ref : refs) {
             fgRnameRefs->AddRef(ref);
          }
+      } catch (...) {
+         // Field doesn't exist
+      }
+
+      // Absent in files written before the field existed; 0 means "unknown".
+      fgMaxRefSpan = 0;
+      try {
+         auto span_view = reader->GetView<uint32_t>("max_ref_span");
+         fgMaxRefSpan = span_view(0);
       } catch (...) {
          // Field doesn't exist
       }
@@ -318,6 +370,29 @@ std::string RAMNTupleRecord::GetRNEXT() const
    return fgRnextRefs->GetRefName(refnext);
 }
 
+uint32_t RAMNTupleRecord::GetRefSpan() const
+{
+   uint32_t span = 0;
+   for (uint32_t op : cigar) {
+      switch (op & 0xF) {
+      case RAM_CIGAR_M:
+      case RAM_CIGAR_D:
+      case RAM_CIGAR_N:
+      case RAM_CIGAR_EQUAL:
+      case RAM_CIGAR_X: span += (op >> 4); break;
+      default: break;
+      }
+   }
+   return span;
+}
+
+int RAMNTupleRecord::GetSEQLEN() const
+{
+   if (seq.size() < 4)
+      return 0;
+   return static_cast<int>(LoadLE32(seq.data()));
+}
+
 void RAMNTupleRecord::SetCIGAR(const std::string &cigar_str)
 {
    cigar = RAMNTupleUtils::ParseCIGAR(cigar_str);
@@ -335,10 +410,11 @@ void RAMNTupleRecord::SetSEQ(const std::string &seq_str)
 
 std::string RAMNTupleRecord::GetSEQ() const
 {
+   // Restores the "*" that EncodeSequence folded into an empty payload.
    if (seq.size() < 4)
-      return "";
-   uint32_t length = *reinterpret_cast<const uint32_t *>(seq.data());
-   return RAMNTupleUtils::DecodeSequence(seq.substr(4), length);
+      return "*";
+   const uint32_t length = LoadLE32(seq.data());
+   return RAMNTupleUtils::DecodeSequence(seq.data() + 4, seq.size() - 4, length);
 }
 
 void RAMNTupleRecord::SetQUAL(const std::string &qual_str)
@@ -401,17 +477,20 @@ namespace RAMNTupleUtils {
 void InitializeTables()
 {
    if (!kSeqTableInit) {
-      std::memset(kSeqToCode, 0, 256);
-      for (int i = 1; i < 16; i++) {
-         kSeqToCode[static_cast<uint8_t>(kCodeToSeq[i])] = i;
+      std::memset(kSeqToCode, kSeqCodeUnknown, 256);
+      for (size_t i = 0; i < kCodeToSeq.size(); i++) {
+         const char base = kCodeToSeq[i];
+         kSeqToCode[static_cast<uint8_t>(base)] = static_cast<uint8_t>(i);
+         // SAM permits lowercase bases (SEQ is [A-Za-z=.]+).
+         kSeqToCode[static_cast<uint8_t>(std::tolower(static_cast<unsigned char>(base)))] = static_cast<uint8_t>(i);
       }
       kSeqTableInit = true;
    }
 
    if (!kCigarTableInit) {
-      std::memset(kCigarToCode, 0, 256);
-      for (int i = 0; i < 9; i++) {
-         kCigarToCode[static_cast<uint8_t>(kCodeToCigar[i])] = i;
+      std::memset(kCigarToCode, kCigarCodeInvalid, 256);
+      for (size_t i = 0; i < kCodeToCigar.size(); i++) {
+         kCigarToCode[static_cast<uint8_t>(kCodeToCigar[i])] = static_cast<uint8_t>(i);
       }
       kCigarTableInit = true;
    }
@@ -421,38 +500,58 @@ std::string EncodeSequence(const std::string &seq)
 {
    InitializeTables();
 
-   uint32_t length = seq.length();
-   size_t encoded_size = 4 + (length + 1) / 2;
+   // "*" is SAM's "sequence not stored" sentinel, not a one-base read. An empty
+   // packed string means "no sequence"; a genuinely empty SEQ still gets its
+   // 4-byte length prefix.
+   if (seq == "*") {
+      return {};
+   }
+
+   const uint32_t length = static_cast<uint32_t>(seq.length());
+   const size_t encoded_size = 4 + ((static_cast<size_t>(length) + 1) / 2);
    std::string encoded;
    encoded.resize(encoded_size);
 
-   std::memcpy(&encoded[0], &length, 4);
+   StoreLE32(&encoded[0], length);
 
    size_t j = 4;
    for (size_t i = 0; i + 1 < length; i += 2) {
-      encoded[j++] = (kSeqToCode[static_cast<uint8_t>(seq[i])] << 4) | kSeqToCode[static_cast<uint8_t>(seq[i + 1])];
+      encoded[j++] = static_cast<char>((kSeqToCode[static_cast<uint8_t>(seq[i])] << 4) |
+                                       kSeqToCode[static_cast<uint8_t>(seq[i + 1])]);
    }
    if (length % 2) {
-      encoded[j] = kSeqToCode[static_cast<uint8_t>(seq[length - 1])] << 4;
+      encoded[j] = static_cast<char>(kSeqToCode[static_cast<uint8_t>(seq[length - 1])] << 4);
    }
 
    return encoded;
 }
 
-std::string DecodeSequence(const std::string &encoded_seq, size_t length)
+// NOLINTNEXTLINE(misc-use-internal-linkage) -- declared in RAMNTupleRecord.h
+std::string DecodeSequence(const char *packed, size_t packed_size, size_t length)
 {
+   InitializeTables();
+
+   // A truncated payload would otherwise be read past its end and yield bases
+   // that were never stored.
+   const size_t needed = (length + 1) / 2;
+   if (packed == nullptr || packed_size < needed) {
+      ::Error("DecodeSequence", "packed sequence holds %zu bytes, %zu needed for %zu bases", packed_size, needed,
+              length);
+      return {};
+   }
+
    std::string seq;
    seq.resize(length);
 
-   size_t pairs = length / 2;
+   const std::string_view packed_bytes(packed, packed_size);
+   const size_t pairs = length / 2;
    for (size_t i = 0; i < pairs; i++) {
-      uint8_t byte = encoded_seq[i];
+      const uint8_t byte = static_cast<uint8_t>(packed_bytes[i]);
       seq[i * 2] = kCodeToSeq[byte >> 4];
       seq[i * 2 + 1] = kCodeToSeq[byte & 0xf];
    }
    if (length % 2) {
-      // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-      seq[length - 1] = kCodeToSeq[static_cast<uint8_t>(encoded_seq[length / 2]) >> 4];
+      seq[length - 1] = kCodeToSeq[static_cast<uint8_t>(packed_bytes[length / 2]) >> 4];
    }
 
    return seq;
@@ -515,21 +614,44 @@ std::vector<uint32_t> ParseCIGAR(const std::string &cigar_str)
    InitializeTables();
 
    std::vector<uint32_t> cigar_ops;
-   std::string num_str;
+
+   // "*" (and an empty field) mean the alignment has no CIGAR.
+   if (cigar_str.empty() || cigar_str == "*")
+      return cigar_ops;
+
+   uint64_t length = 0;
+   bool have_length = false;
+
+   auto fail = [&]() {
+      ::Error("ParseCIGAR", "malformed CIGAR '%s'", cigar_str.c_str());
+      cigar_ops.clear();
+      return cigar_ops;
+   };
 
    for (char c : cigar_str) {
-      if (std::isdigit(c)) {
-         num_str += c;
-      } else if (kCigarToCode[static_cast<uint8_t>(c)] < 9) {
-         if (!num_str.empty()) {
-            uint32_t len = std::stoul(num_str);
-            uint8_t op = kCigarToCode[static_cast<uint8_t>(c)];
-            cigar_ops.push_back((len << 4) | op);
-            num_str.clear();
-         }
+      if (c >= '0' && c <= '9') {
+         length = length * 10 + static_cast<uint64_t>(c - '0');
+         // Bounded here rather than by std::stoul, which threw std::out_of_range
+         // on a long run of digits and took the whole conversion down with it.
+         if (length > kMaxCigarOpLen)
+            return fail();
+         have_length = true;
+         continue;
       }
+
+      const uint8_t op = kCigarToCode[static_cast<uint8_t>(c)];
+      // An unrecognised operator used to index a zero-filled table and come back
+      // as 0 -- 'M' -- so "10Q" was silently stored as ten matches.
+      if (op == kCigarCodeInvalid || !have_length)
+         return fail();
+
+      cigar_ops.push_back((static_cast<uint32_t>(length) << 4) | op);
+      length = 0;
+      have_length = false;
    }
 
+   if (have_length)
+      return fail();
    return cigar_ops;
 }
 
@@ -630,6 +752,7 @@ void RAMNTupleConverter::ConvertSAMToRAMNTuple(const std::string &sam_file, cons
          RAMNTupleRecord::GetIndex()->AddItem(rec.refid, rec.pos, entry_number);
       }
 
+      RAMNTupleRecord::NoteRefSpan(rec.GetRefSpan());
       *recordPtr = std::move(rec);
       writer->Fill(*defaultEntry);
 
