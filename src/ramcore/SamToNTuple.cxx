@@ -228,7 +228,7 @@ void samtoramntuple_split_by_chromosome(const char *datafile, const char *output
       auto model = RAMNTupleRecord::MakeModel();
       ROOT::RNTupleWriteOptions writeOptions;
 
-      writeOptions.SetCompression(ROOT::RCompressionSetting::EAlgorithm::kZSTD, 1);
+      writeOptions.SetCompression(compression_algorithm);
       writeOptions.SetApproxZippedClusterSize(200 * 1024 * 1024);
       writeOptions.SetMaxUnzippedClusterSize(1024 * 1024 * 1024);
       writeOptions.SetMaxUnzippedPageSize(1024 * 1024);
