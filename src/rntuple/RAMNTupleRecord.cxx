@@ -13,6 +13,7 @@
 #include <fstream>
 #include <cstring>
 #include <cctype>
+#include <string_view>
 
 using namespace ROOT;
 
@@ -542,7 +543,7 @@ std::string DecodeSequence(const char *packed, size_t packed_size, size_t length
    std::string seq;
    seq.resize(length);
 
-   const std::string packed_bytes(packed, packed_size);
+   const std::string_view packed_bytes(packed, packed_size);
    const size_t pairs = length / 2;
    for (size_t i = 0; i < pairs; i++) {
       const uint8_t byte = static_cast<uint8_t>(packed_bytes[i]);
@@ -751,6 +752,7 @@ void RAMNTupleConverter::ConvertSAMToRAMNTuple(const std::string &sam_file, cons
          RAMNTupleRecord::GetIndex()->AddItem(rec.refid, rec.pos, entry_number);
       }
 
+      RAMNTupleRecord::NoteRefSpan(rec.GetRefSpan());
       *recordPtr = std::move(rec);
       writer->Fill(*defaultEntry);
 

@@ -238,20 +238,23 @@ TEST_F(ramcoreTest, RegionQueryFindsReadsStartingBeforeTheIndexAnchor)
       sam << "@HD\tVN:1.6\tSO:coordinate\n";
       sam << "@SQ\tSN:chr1\tLN:1000000\n";
 
-      // Starts at 1000 and reaches 201009 through a long intron.
-      sam << "spanning\t0\tchr1\t1000\t60\t10M199990N10M\t*\t0\t0\t" << std::string(20, 'A') << "\t*\n";
+      // Starts at 100000 and reaches 300009 through a long intron.
+      sam << "spanning\t0\tchr1\t100000\t60\t10M199990N10M\t*\t0\t0\t" << std::string(20, 'A') << "\t*\n";
 
       // Enough short reads to put index anchors between it and the query region.
       const std::string seq(50, 'C');
       for (int i = 0; i < 300; ++i) {
-         sam << "short" << i << "\t0\tchr1\t" << (150000 + i * 10) << "\t60\t50M\t*\t0\t0\t" << seq << "\t*\n";
+         sam << "short" << i << "\t0\tchr1\t" << (290000 + i * 10) << "\t60\t50M\t*\t0\t0\t" << seq << "\t*\n";
       }
-      sam << "inside\t0\tchr1\t160050\t60\t50M\t*\t0\t0\t" << seq << "\t*\n";
+      sam << "inside\t0\tchr1\t300050\t60\t50M\t*\t0\t0\t" << seq << "\t*\n";
+      // An anchor past the region, so the lookup lands on the anchor before the
+      // region instead of falling back to a scan from the first record.
+      sam << "after\t0\tchr1\t310000\t60\t50M\t*\t0\t0\t" << seq << "\t*\n";
    }
 
    samtoramntuple(customSam, rntupleFile, /*index=*/true, false, false, 505, 0);
 
-   EXPECT_EQ(ramntupleview(rntupleFile, "chr1:160000-160100", opts), 2)
+   EXPECT_EQ(ramntupleview(rntupleFile, "chr1:300000-300100", opts), 2)
       << "the spanning read overlaps the region and must not be skipped";
 
    std::remove(customSam);
