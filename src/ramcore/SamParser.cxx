@@ -2,10 +2,12 @@
 #include <cctype>
 #include <cerrno>
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <limits>
+#include <string>
 
 namespace ramcore {
 
@@ -54,6 +56,29 @@ bool RequireNonEmpty(const char *value, const char *field_name, size_t line_numb
    std::cerr << "[SamParser] Warning: empty value for field '" << field_name << "' at line " << line_number
              << "; record skipped.\n";
    return false;
+}
+
+// A CIGAR is "*" or a run of <length><op> pairs. A malformed one used to reach
+// the record encoder, which stored the read with no CIGAR at all.
+bool ValidCigar(const std::string &cigar, size_t line_number)
+{
+   constexpr uint32_t kMaxOpLength = 0x0FFFFFFF; // 28 bits, as in BAM
+   bool ok = !cigar.empty();
+   size_t i = 0;
+   while (ok && i < cigar.size() && cigar != "*") {
+      uint32_t length = 0;
+      size_t digits = 0;
+      for (; i < cigar.size() && std::isdigit(static_cast<unsigned char>(cigar[i])); i++, digits++)
+         length = length * 10 + static_cast<uint32_t>(cigar[i] - '0');
+      ok = digits > 0 && digits <= 9 && length <= kMaxOpLength && i < cigar.size() &&
+           std::strchr("MIDNSHP=X", cigar[i]) != nullptr;
+      i++;
+   }
+   if (!ok) {
+      std::cerr << "[SamParser] Warning: malformed CIGAR '" << cigar << "' at line " << line_number
+                << "; record skipped.\n";
+   }
+   return ok;
 }
 
 } // namespace
@@ -165,7 +190,11 @@ bool SamParser::ParseLine(char *line, SamRecord &record)
          if (!ParseInt(token, record.mapq, "mapq", lines_processed_, 0, std::numeric_limits<unsigned char>::max()))
             return false;
          break;
-      case 5: record.cigar = token; break;
+      case 5:
+         record.cigar = token;
+         if (!ValidCigar(record.cigar, lines_processed_))
+            return false;
+         break;
       case 6: record.rnext = token; break;
       case 7:
          if (!ParseInt(token, record.pnext, "pnext", lines_processed_, 0, std::numeric_limits<int>::max()))

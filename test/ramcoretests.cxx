@@ -530,6 +530,64 @@ TEST_F(ramcoreTest, SamParserRejectsMalformedIntegerFields)
 }
 
 // NOLINTNEXTLINE(misc-use-internal-linkage)
+TEST_F(ramcoreTest, SamParserRejectsMalformedCigar)
+{
+   // An unknown operator, no length, a trailing length, a length past BAM's
+   // 28-bit limit, a fractional length, and a second operator with no length.
+   for (const char *cigar : {"10Q", "M", "4M2", "268435456M", "1.5M", "4MI"}) {
+      const std::string record = std::string("r\t0\tchr1\t100\t60\t") + cigar + "\t*\t0\t0\tACGT\tIIII";
+      testing::internal::CaptureStderr();
+      EXPECT_EQ(ParseSamRecords({record.c_str()}), 0U) << "CIGAR '" << cigar << "' was accepted";
+      EXPECT_NE(testing::internal::GetCapturedStderr().find("malformed CIGAR"), std::string::npos)
+         << "no warning for CIGAR '" << cigar << "'";
+   }
+}
+
+// NOLINTNEXTLINE(misc-use-internal-linkage)
+TEST_F(ramcoreTest, SamParserKeepsValidCigar)
+{
+   for (const char *cigar : {"*", "4M", "2S4M1I3M1D2N5=1X2H", "268435455M"}) {
+      const std::string record = std::string("r\t0\tchr1\t100\t60\t") + cigar + "\t*\t0\t0\tACGT\tIIII";
+      std::string seen;
+      EXPECT_EQ(ParseSamRecords({record.c_str()}, [&](const ramcore::SamRecord &r) { seen = r.cigar; }), 1U)
+         << "CIGAR '" << cigar << "' was rejected";
+      EXPECT_EQ(seen, cigar);
+   }
+}
+
+// A rejected record must not reach the file, and the records around it must.
+// NOLINTNEXTLINE(misc-use-internal-linkage)
+TEST_F(ramcoreTest, MalformedCigarRecordIsSkippedByConversion)
+{
+   const char *samFile = "test_bad_cigar.sam";
+   const char *rntupleFile = "test_bad_cigar.root";
+   {
+      std::ofstream sam(samFile);
+      sam << "@HD\tVN:1.6\tSO:coordinate\n";
+      sam << "@SQ\tSN:chr1\tLN:1000\n";
+      sam << "a\t0\tchr1\t100\t60\t4M\t*\t0\t0\tACGT\tIIII\n";
+      sam << "b\t0\tchr1\t200\t60\t4Q\t*\t0\t0\tACGT\tIIII\n";
+      sam << "c\t0\tchr1\t300\t60\t2M2I\t*\t0\t0\tACGT\tIIII\n";
+   }
+
+   testing::internal::CaptureStderr();
+   samtoramntuple(samFile, rntupleFile, /*index=*/true, false, false, 505, 0);
+   EXPECT_NE(testing::internal::GetCapturedStderr().find("malformed CIGAR '4Q' at line 4"), std::string::npos);
+
+   auto reader = RAMNTupleRecord::OpenRAMFile(rntupleFile);
+   ASSERT_NE(reader, nullptr);
+   ASSERT_EQ(reader->GetNEntries(), 2U);
+   auto view = reader->GetView<RAMNTupleRecord>("record");
+   EXPECT_EQ(view(0).GetQNAME(), "a");
+   EXPECT_EQ(view(0).GetCIGAR(), "4M");
+   EXPECT_EQ(view(1).GetQNAME(), "c");
+   EXPECT_EQ(view(1).GetCIGAR(), "2M2I");
+
+   std::remove(samFile);
+   std::remove(rntupleFile);
+}
+
+// NOLINTNEXTLINE(misc-use-internal-linkage)
 TEST_F(ramcoreTest, SamParserParsesValidIntegerBoundaries)
 {
    ramcore::SamRecord parsed;
