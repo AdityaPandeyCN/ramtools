@@ -2,15 +2,35 @@
 #include "benchmark_utils.h"
 #include "ramcore/RAMNTupleView.h"
 #include <string>
+#include <sstream>
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
 #include <cstdint>
+#include <memory>
+#include <unistd.h>
 
-// File comes from the environment so the numbers are reproducible on any
-// machine. A hard-coded path is not a benchmark result.
+// File and regions come from the environment so the numbers are reproducible
+// on any machine. A hard-coded path is not a benchmark result.
 //
 //   RAMTOOLS_BENCH_RNTUPLE   RAM file written by samtoramntuple   (required)
+//   RAMTOOLS_BENCH_REGIONS   comma-separated regions to query     (optional)
+
+static std::vector<std::string> LoadRegions()
+{
+   const char *env = std::getenv("RAMTOOLS_BENCH_REGIONS");
+   std::stringstream spec((env && *env) ? env
+                                        : "chr1:1000000-1001000,chr1:1000000-2000000,chr1:1-50000000,chr21:1-48129895");
+   std::vector<std::string> regions;
+   std::string one{};
+   while (std::getline(spec, one, ','))
+      if (!one.empty())
+         regions.push_back(one);
+   return regions;
+}
+
+static const std::vector<std::string> kRegions = LoadRegions();
+
 class RegionQueryFixture : public benchmark::Fixture {
 public:
    void SetUp(const benchmark::State &state) override
@@ -26,32 +46,28 @@ protected:
    int region_idx_;
    std::string rntuple_root_file_;
 
-   static const std::vector<std::string> regions_;
+   // The query prints a summary per call. Reopening /dev/tty to undo the
+   // redirect fails whenever the output is piped, so the descriptor is saved.
+   void suppress_output()
+   {
+      fflush(stdout);
+      m_saved_stdout = dup(STDOUT_FILENO);
+      const std::unique_ptr<FILE, int (*)(FILE *)> null(fopen(NULL_DEVICE, "w"), fclose);
+      dup2(fileno(null.get()), STDOUT_FILENO);
+   }
 
-   void suppress_output() { freopen(NULL_DEVICE, "w", stdout); }
-   void restore_output() { freopen("/dev/tty", "w", stdout); }
+   void restore_output() const
+   {
+      fflush(stdout);
+      dup2(m_saved_stdout, STDOUT_FILENO);
+      close(m_saved_stdout);
+   }
 
-   const char *get_current_region() const { return regions_[region_idx_ % regions_.size()].c_str(); }
+   [[nodiscard]] const char *get_current_region() const { return kRegions[region_idx_].c_str(); }
+
+private:
+   int m_saved_stdout = -1;
 };
-
-const std::vector<std::string> RegionQueryFixture::regions_ = {"chr1:1000000-1001000",
-                                                               "chr2:5000000-5010000",
-                                                               "chrX:100000-150000",
-                                                               "chr1:1000000-2000000",
-                                                               "chr5:10000000-15000000",
-                                                               "chr10:50000000-60000000",
-                                                               "chr1:1-50000000",
-                                                               "chr2:1-100000000",
-                                                               "chr7:50000000-150000000",
-                                                               "chr21:1-48129895",
-                                                               "chrM:1-16571",
-                                                               "chrY:2600000-2700000",
-                                                               "GL000227.1:1-100000",
-                                                               "chr1:1-1000",
-                                                               "chr1:249250621-249250621",
-                                                               "chr22:51304566-51304566",
-                                                               "chr17:41196312-41277500",
-                                                               "chr13:32889611-32973805"};
 
 // NOLINTNEXTLINE(misc-use-internal-linkage)
 BENCHMARK_DEFINE_F(RegionQueryFixture, RNTuple)(benchmark::State &state)
@@ -75,10 +91,15 @@ BENCHMARK_DEFINE_F(RegionQueryFixture, RNTuple)(benchmark::State &state)
    }
 
    state.SetItemsProcessed(total_reads_processed);
-   state.counters["region_idx"] = region_idx_;
-   state.SetLabel(std::to_string(reads_in_this_run) + " reads");
+   state.SetLabel(std::string(region) + ": " + std::to_string(reads_in_this_run) + " reads");
 }
 
-BENCHMARK_REGISTER_F(RegionQueryFixture, RNTuple)->Args({0})->Args({3})->Args({6})->Args({9})->Unit(benchmark::kSecond);
+// One case per region. The cases used to be indices 0, 3, 6 and 9 into a
+// fixed list of eighteen.
+namespace {
+BENCHMARK_REGISTER_F(RegionQueryFixture, RNTuple)
+   ->DenseRange(0, static_cast<int>(kRegions.size()) - 1)
+   ->Unit(benchmark::kSecond);
+} // namespace
 
 BENCHMARK_MAIN();

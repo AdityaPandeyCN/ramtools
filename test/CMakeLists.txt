@@ -30,6 +30,13 @@ add_ramcore_test(ramcoretests ramcoretests.cxx)
 add_ramcore_test(chromosome_split_test chromosome_split_test.cxx)
 add_ramcore_test(bam_conversion bam_conversion.cxx)
 
+if(TARGET samtoramntuple)
+    add_test(NAME samtoramntuple_rejects_bad_compression COMMAND samtoramntuple in.sam -compression asd)
+    add_test(NAME bamtoramntuple_rejects_bad_compression COMMAND bamtoramntuple in.bam -compression 999)
+    set_tests_properties(samtoramntuple_rejects_bad_compression bamtoramntuple_rejects_bad_compression
+        PROPERTIES PASS_REGULAR_EXPRESSION "invalid -compression value")
+endif()
+
 install(TARGETS ramcoretests chromosome_split_test bam_conversion
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
