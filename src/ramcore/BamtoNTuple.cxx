@@ -286,13 +286,17 @@ void bamtoramntuple(const char *bamfile, const char *treefile, bool index, bool 
       std::istringstream ss(text);
       std::string line;
       while (std::getline(ss, line)) {
-         if (line.size() >= 3) {
-            auto named_obj = std::make_unique<TNamed>(line.substr(0, 3).c_str(), line.c_str());
-            headers.Add(named_obj.release());
-         }
+         if (line.size() < 3)
+            continue;
+         // Same split as the SAM writer: the tag, then everything after the first tab.
+         const size_t tab = line.find('\t');
+         auto named_obj = std::make_unique<TNamed>(
+            line.substr(0, tab).c_str(), line.substr(tab == std::string::npos ? line.size() : tab + 1).c_str());
+         headers.Add(named_obj.release());
       }
    }
-   headers.Write();
+   // One key for the list; without kSingleKey every line is written as its own key.
+   headers.Write("headers", TObject::kSingleKey);
 
    rootFile->Close();
    sam_hdr_destroy(hdr);
