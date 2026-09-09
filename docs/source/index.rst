@@ -46,6 +46,8 @@ Where to go next
   how to check any result against samtools.
 - :doc:`user/format` describes what is inside a RAM file. Read it if you want
   to understand why queries are fast or to read the files from your own code.
+- :doc:`reference/index` is the C++ API, generated from the headers, for
+  using ``ramcore`` from your own code.
 - :doc:`dev/contributing` is for changing the code.
 
 .. toctree::
@@ -57,4 +59,5 @@ Where to go next
    user/querying
    user/format
    user/benchmarks
+   reference/index
    dev/contributing

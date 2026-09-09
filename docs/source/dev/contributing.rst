@@ -13,7 +13,7 @@ Layout
 ``test``            googletest suites and ``ctest`` entries
 ``benchmark``       Google Benchmark binaries and the SAM generator
 ``scripts``         benchmark runner and table renderer
-``docs``            this site
+``docs``            this site; the API pages are generated from the headers
 ==================  ==========================================================
 
 How a record gets in
