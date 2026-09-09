@@ -37,6 +37,14 @@ if(TARGET samtoramntuple)
         PROPERTIES PASS_REGULAR_EXPRESSION "invalid -compression value")
 endif()
 
+if(TARGET ramdump)
+    add_ramcore_test(ramdump_test ramdump_test.cxx)
+    add_dependencies(ramdump_test samtoramntuple ramdump)
+    target_compile_definitions(ramdump_test PRIVATE
+        SAMTORAMNTUPLE_BIN="$<TARGET_FILE:samtoramntuple>"
+        RAMDUMP_BIN="$<TARGET_FILE:ramdump>")
+endif()
+
 install(TARGETS ramcoretests chromosome_split_test bam_conversion
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )

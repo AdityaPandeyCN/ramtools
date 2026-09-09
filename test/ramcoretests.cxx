@@ -13,6 +13,7 @@
 #include <iostream>
 #include <limits>
 #include <string>
+#include <vector>
 #include "../benchmark/generate_sam_benchmark.h"
 #include "ramcore/RAMNTupleView.h"
 #include "ramcore/SamParser.h"
@@ -240,6 +241,42 @@ TEST_F(ramcoreTest, RegionQueryFindsReadsStartingBeforeTheIndexAnchor)
 
    EXPECT_EQ(ramntupleview(rntupleFile, "chr1:300000-300100", opts), 2)
       << "the spanning read overlaps the region and must not be skipped";
+
+   std::remove(customSam);
+   std::remove(rntupleFile);
+}
+
+// ramntuplescan hands every overlapping row to the callback in file order and
+// returns the same count ramntupleview reports; a null callback only counts.
+TEST_F(ramcoreTest, ScanVisitsEveryOverlappingRowInOrder)
+{
+   const char *customSam = "test_scan.sam";
+   const char *rntupleFile = "test_scan.root";
+   {
+      std::ofstream sam(customSam);
+      sam << "@HD\tVN:1.6\tSO:coordinate\n";
+      sam << "@SQ\tSN:chr1\tLN:1000\n@SQ\tSN:chr2\tLN:1000\n";
+      sam << "a\t0\tchr1\t100\t60\t4M\t*\t0\t0\tACGT\t*\n";
+      sam << "b\t0\tchr1\t150\t60\t50M\t*\t0\t0\t" << std::string(50, 'A') << "\t*\n";
+      sam << "c\t0\tchr1\t300\t60\t4M\t*\t0\t0\tACGT\t*\n";
+      sam << "d\t0\tchr2\t10\t60\t4M\t*\t0\t0\tACGT\t*\n";
+   }
+   samtoramntuple(customSam, rntupleFile, /*index=*/true, false, false, 505, 0);
+
+   auto reader = RAMNTupleRecord::OpenRAMFile(rntupleFile);
+   ASSERT_NE(reader, nullptr);
+   std::vector<Long64_t> rows;
+   auto collect = [&](Long64_t row) { rows.push_back(row); };
+
+   EXPECT_EQ(ramntuplescan(*reader, "chr1:150-200", collect), 1);
+   EXPECT_EQ(rows, std::vector<Long64_t>{1});
+
+   rows.clear();
+   EXPECT_EQ(ramntuplescan(*reader, "", collect), 4) << "no region means every record";
+   EXPECT_EQ(rows, (std::vector<Long64_t>{0, 1, 2, 3}));
+
+   EXPECT_EQ(ramntuplescan(*reader, "chr1", nullptr), 3);
+   EXPECT_EQ(ramntuplescan(*reader, "chr1", nullptr), ramntupleview(rntupleFile, "chr1", opts));
 
    std::remove(customSam);
    std::remove(rntupleFile);
@@ -602,27 +639,27 @@ TEST_F(ramcoreTest, SamParserParsesValidIntegerBoundaries)
    EXPECT_EQ(parsed.tlen, std::numeric_limits<int>::min() + 1);
 }
 
+// Resolving a region's reference must be a lookup, never an insert: a query for a
+// contig the file does not contain used to append it to fRefVec, giving every
+// later record's refid a different meaning than the one it was written with.
 // NOLINTNEXTLINE(misc-use-internal-linkage)
 TEST_F(ramcoreTest, InvalidChromosomeDoesNotPolluteFRefVec)
 {
    const char *samFile = "samexample.sam";
    const char *rntupleFile = "test_rntuple.root";
 
-   RAMNTupleConverter::ConvertSAMToRAMNTuple(samFile, rntupleFile);
+   samtoramntuple(samFile, rntupleFile, true, true, true, 505, 0);
 
-   size_t refsBefore = 0;
-   refsBefore = RAMNTupleRecord::GetRnameRefs()->Size();
+   const auto refsBefore = RAMNTupleRecord::GetRnameRefs()->Size();
 
    testing::internal::CaptureStdout();
    testing::internal::CaptureStderr();
-   RAMNTupleConverter::ViewRegion(rntupleFile, "chrINVALID:100-200");
+   const Long64_t found = ramntupleview(rntupleFile, "chrINVALID:100-200", opts);
    testing::internal::GetCapturedStdout();
    testing::internal::GetCapturedStderr();
 
-   size_t refsAfter = 0;
-   refsAfter = RAMNTupleRecord::GetRnameRefs()->Size();
-
-   EXPECT_EQ(refsBefore, refsAfter)
+   EXPECT_EQ(found, 0) << "a reference that is not in the file cannot have records";
+   EXPECT_EQ(refsBefore, RAMNTupleRecord::GetRnameRefs()->Size())
       << "Invalid chromosome 'chrINVALID' was inserted into fRefVec (regression of issue #23)";
 
    std::remove(rntupleFile);
