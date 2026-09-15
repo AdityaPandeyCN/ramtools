@@ -46,6 +46,50 @@ with each matching row. ``ramntupleview`` passes a counting callback;
 ``ramdump`` passes one that reads the full record and formats it. If you
 change what "in the region" means, change it there and both tools follow.
 
+Shared state, and the one rule about it
+---------------------------------------
+
+Four things a query needs are not in the records: the RNAME and RNEXT name
+tables, the region index, the longest reference span, and the sort flag.
+All four are static members of ``RAMNTupleRecord``, one copy per process.
+``OpenRAMFile()`` loads them from a file's ``METADATA`` and ``INDEX``; the
+writers fill them while converting and write them out at the end.
+
+``InitializeRefs()`` is the "start a new file" step: it creates the tables
+if they do not exist and wipes the per-file parts, so a second file in the
+same process does not inherit the first one's index, span or sort flag.
+Exactly three callers are allowed: ``samtoramntuple``, ``bamtoramntuple``,
+and ``OpenRAMFile()``. ``samtoramntuple_split_by_chromosome`` calls it once,
+before the first record.
+
+**The rule: constructing a record must never touch this state.** RNTuple
+constructs a ``RAMNTupleRecord`` whenever a view of the ``record`` field is
+created and whenever a writer model is created, and both happen after the
+file state is loaded. The constructor once called ``InitializeRefs()``, and
+the two symptoms were exactly that:
+
+- ``ramdump`` creates a record view after opening the file. The reset put
+  the sort flag back to "sorted", the scan stopped at the first record past
+  the region, and on an unsorted file records were dropped. The count-only
+  path, which creates no view, was right, so the two disagreed.
+- The split writer opens a model for each chromosome. The reset zeroed the
+  longest span every time, so earlier chromosomes' files were written with
+  a span too small for the region seek to back off enough. A span that is
+  too large costs time; one that is too small loses reads.
+
+The constructor now calls only ``EnsureTables()``, which creates the tables
+and changes nothing. If you add per-file state, put its reset in
+``InitializeRefs()`` and nowhere else, and extend
+``ConstructingARecordKeepsTheOpenFileState`` in ``ramcoretests.cxx``: it
+opens a file, creates a record view and a record, and checks the flag, the
+span and the index size are unchanged. ``SplitFilesKeepTheLongestSpan`` in
+``chromosome_split_test.cxx`` guards the writer side.
+
+Two habits would have caught this earlier. Test ``ramdump`` on unsorted
+input, not only ``ramntupleview``, because only ``ramdump`` goes through a
+record view. And after writing split files, read their ``max_ref_span``
+back; byte-identical dumps prove the records, not the metadata.
+
 Tests
 -----
 
