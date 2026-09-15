@@ -282,6 +282,123 @@ TEST_F(ramcoreTest, ScanVisitsEveryOverlappingRowInOrder)
    std::remove(rntupleFile);
 }
 
+// A region query seeks to an index entry and stops at the first record past
+// the region. Both assume coordinate order, so a file without it is read end
+// to end instead, and gets no index.
+TEST_F(ramcoreTest, UnsortedFileIsReadInFullAndNotIndexed)
+{
+   const char *customSam = "test_unsorted.sam";
+   const char *rntupleFile = "test_unsorted.root";
+
+   {
+      std::ofstream sam(customSam);
+      sam << "@HD\tVN:1.6\tSO:unsorted\n";
+      sam << "@SQ\tSN:chr1\tLN:100000\n";
+      // Only a and d overlap chr1:1000-1100. A query that stopped at the first
+      // record past the region would report a and never reach d.
+      sam << "a\t0\tchr1\t1000\t60\t50M\t*\t0\t0\t" << std::string(50, 'A') << "\t*\n";
+      sam << "b\t0\tchr1\t90000\t60\t50M\t*\t0\t0\t" << std::string(50, 'C') << "\t*\n";
+      sam << "c\t0\tchr1\t50000\t60\t50M\t*\t0\t0\t" << std::string(50, 'G') << "\t*\n";
+      sam << "d\t0\tchr1\t1050\t60\t50M\t*\t0\t0\t" << std::string(50, 'T') << "\t*\n";
+   }
+
+   testing::internal::CaptureStderr();
+   samtoramntuple(customSam, rntupleFile, /*index=*/true, false, false, 505, 0);
+   EXPECT_NE(testing::internal::GetCapturedStderr().find("not in coordinate order"), std::string::npos);
+
+   EXPECT_EQ(ramntupleview(rntupleFile, "chr1:1000-1100", opts), 2);
+   EXPECT_EQ(ramntupleview(rntupleFile, "chr1:50000-50010", opts), 1);
+   EXPECT_EQ(ramntupleview(rntupleFile, "chr1:2000-3000", opts), 0);
+   EXPECT_FALSE(RAMNTupleRecord::IsCoordinateSorted());
+   EXPECT_EQ(RAMNTupleRecord::GetIndex()->Size(), 0U);
+
+   std::remove(customSam);
+   std::remove(rntupleFile);
+}
+
+TEST_F(ramcoreTest, SortedFileIsIndexedAndMarkedSorted)
+{
+   const char *customSam = "test_sorted.sam";
+   const char *rntupleFile = "test_sorted.root";
+
+   {
+      std::ofstream sam(customSam);
+      sam << "@HD\tVN:1.6\tSO:coordinate\n";
+      sam << "@SQ\tSN:chr1\tLN:100000\n";
+      for (int i = 0; i < 300; ++i)
+         sam << "r" << i << "\t0\tchr1\t" << (1000 + i * 100) << "\t60\t50M\t*\t0\t0\t" << std::string(50, 'A')
+             << "\t*\n";
+   }
+
+   samtoramntuple(customSam, rntupleFile, /*index=*/true, false, false, 505, 0);
+
+   auto reader = RAMNTupleRecord::OpenRAMFile(rntupleFile);
+   ASSERT_NE(reader, nullptr);
+   EXPECT_TRUE(RAMNTupleRecord::IsCoordinateSorted());
+   EXPECT_GT(RAMNTupleRecord::GetIndex()->Size(), 0U);
+
+   std::remove(customSam);
+   std::remove(rntupleFile);
+}
+
+// RNTuple constructs a record whenever a view or a writer model is created.
+// That must not touch the state OpenRAMFile loaded: ramdump creates a record
+// view after opening the file, and a reset there made an unsorted file look
+// sorted, so the scan stopped early and dropped records.
+TEST_F(ramcoreTest, ConstructingARecordKeepsTheOpenFileState)
+{
+   const char *unsortedSam = "test_ctor_unsorted.sam";
+   const char *unsortedFile = "test_ctor_unsorted.root";
+   {
+      std::ofstream sam(unsortedSam);
+      sam << "@HD\tVN:1.6\tSO:unsorted\n@SQ\tSN:chr1\tLN:100000\n";
+      sam << "a\t0\tchr1\t1000\t60\t50M\t*\t0\t0\t" << std::string(50, 'A') << "\t*\n";
+      sam << "b\t0\tchr1\t90000\t60\t50M\t*\t0\t0\t" << std::string(50, 'C') << "\t*\n";
+      sam << "c\t0\tchr1\t1050\t60\t50M\t*\t0\t0\t" << std::string(50, 'T') << "\t*\n";
+   }
+   testing::internal::CaptureStderr();
+   samtoramntuple(unsortedSam, unsortedFile, /*index=*/true, false, false, 505, 0);
+   testing::internal::GetCapturedStderr();
+
+   {
+      auto reader = RAMNTupleRecord::OpenRAMFile(unsortedFile);
+      ASSERT_NE(reader, nullptr);
+      auto view = reader->GetView<RAMNTupleRecord>("record");
+      const RAMNTupleRecord scratch;
+      EXPECT_FALSE(RAMNTupleRecord::IsCoordinateSorted());
+      EXPECT_EQ(ramntuplescan(*reader, "chr1:1000-1100", nullptr), 2);
+   }
+
+   const char *sortedSam = "test_ctor_sorted.sam";
+   const char *sortedFile = "test_ctor_sorted.root";
+   {
+      std::ofstream sam(sortedSam);
+      sam << "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:1000000\n";
+      sam << "spanning\t0\tchr1\t1000\t60\t10M199990N10M\t*\t0\t0\t" << std::string(20, 'A') << "\t*\n";
+      sam << "short\t0\tchr1\t300000\t60\t50M\t*\t0\t0\t" << std::string(50, 'C') << "\t*\n";
+   }
+   samtoramntuple(sortedSam, sortedFile, /*index=*/true, false, false, 505, 0);
+
+   {
+      auto reader = RAMNTupleRecord::OpenRAMFile(sortedFile);
+      ASSERT_NE(reader, nullptr);
+      const uint32_t span = RAMNTupleRecord::GetMaxRefSpan();
+      const size_t entries = RAMNTupleRecord::GetIndex()->Size();
+      EXPECT_EQ(span, 200010U);
+      EXPECT_GT(entries, 0U);
+      auto view = reader->GetView<RAMNTupleRecord>("record");
+      const RAMNTupleRecord another;
+      EXPECT_EQ(RAMNTupleRecord::GetMaxRefSpan(), span);
+      EXPECT_EQ(RAMNTupleRecord::GetIndex()->Size(), entries);
+      EXPECT_TRUE(RAMNTupleRecord::IsCoordinateSorted());
+   }
+
+   std::remove(unsortedSam);
+   std::remove(unsortedFile);
+   std::remove(sortedSam);
+   std::remove(sortedFile);
+}
+
 TEST_F(ramcoreTest, IndexGetRowsInRange)
 {
    RAMNTupleRecord::InitializeRefs();
@@ -307,10 +424,19 @@ TEST_F(ramcoreTest, IndexGetRowsInRange)
    ASSERT_EQ(otherChrom.size(), 1U);
    EXPECT_EQ(otherChrom[0], 3);
 
-   // test with generated entries
+   // test with generated entries; the input has to be sorted to get an index
+   const char *mockSam = "test_mock_index.sam";
    const char *mockFile = "test_mock_index.root";
-   samtoramntuple(/*datafile=*/"samexample.sam", mockFile, /*index=*/true, /*split=*/true, /*cache=*/true,
-                  /*compression_algorithm=*/505, /*quality_policy=*/0);
+   {
+      std::ofstream sam(mockSam);
+      sam << "@HD\tVN:1.6\tSO:coordinate\n";
+      sam << "@SQ\tSN:chr1\tLN:1000000\n";
+      for (int i = 0; i < 100; ++i)
+         sam << "r" << i << "\t0\tchr1\t" << (1 + i * 1000) << "\t60\t36M\t*\t0\t0\t" << std::string(36, 'A')
+             << "\t*\n";
+   }
+   samtoramntuple(mockSam, mockFile, /*index=*/true, /*split=*/true, /*cache=*/true, /*compression_algorithm=*/505,
+                  /*quality_policy=*/0);
 
    auto reader = RAMNTupleRecord::OpenRAMFile(mockFile);
    ASSERT_NE(reader, nullptr);
@@ -322,12 +448,13 @@ TEST_F(ramcoreTest, IndexGetRowsInRange)
    auto wideRows = index->GetRowsInRange(/*refid=*/chr1_refid, /*start=*/0, /*end=*/1000000000);
    for (int64_t row : wideRows) {
       EXPECT_GE(row, 0);
-      EXPECT_LT(row, 100); // record length of samexample.sam is 100 in SetUp()
+      EXPECT_LT(row, 100);
    }
 
    auto invalidRows = index->GetRowsInRange(/*refid=*/-1, /*start=*/0, /*end=*/1000000000);
    EXPECT_TRUE(invalidRows.empty());
 
+   std::remove(mockSam);
    std::remove(mockFile);
 }
 
