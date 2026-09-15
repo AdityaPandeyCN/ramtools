@@ -59,9 +59,11 @@ What the input has to look like
 
 **Sorted input gets an index.** The index lets a region query jump close to
 the region and stop at the first record past it. Both steps assume the
-records are in coordinate order, the order ``samtools sort`` produces. If
-your input is not sorted, sort it first, or the index will send queries to
-the wrong place:
+records are in coordinate order, the order ``samtools sort`` produces. The
+conversion checks the order as it goes and records the answer in the file.
+Unsorted input is stored as it arrives, marked unsorted, and gets no index;
+the conversion says so on standard error. Region queries on such a file are
+still exact, but read every record. For fast queries, sort first:
 
 .. code-block:: bash
 
@@ -88,9 +90,12 @@ Splitting by chromosome
 
 ``samtoramntuple reads.sam out -split`` writes ``out_chr1.root``,
 ``out_chr2.root`` and so on, one complete RAM file per reference sequence,
-each with its own metadata and a copy of the header. Query and dump them
-like any other RAM file. Records with no reference sequence are not written
-to any of them.
+each with its own metadata and a copy of the header. Records stream to
+their file as they are parsed, in the order they arrive, so the split needs
+no more memory than a plain conversion. Each file records whether its own
+records are in coordinate order and gets its own index when they are. Query
+and dump them like any other RAM file. Records with no reference sequence
+are not written to any of them.
 
 What gets printed
 -----------------

@@ -99,7 +99,7 @@ Lower-case input is stored as the same code. Any other byte is stored as
 Metadata
 --------
 
-``METADATA`` has a single entry with three fields:
+``METADATA`` has a single entry with four fields:
 
 - ``rname_refs`` and ``rnext_refs``: the two name tables.
 - ``max_ref_span``: the longest reference span of any record in the file.
@@ -108,6 +108,11 @@ Metadata
   exact: no record that begins before the region and reaches into it can be
   skipped. A value of 0 means the file predates this field, and queries
   scan from the reference's first record.
+- ``coordinate_sorted``: whether the records are in coordinate order. A
+  query on a sorted file seeks through the index and stops at the first
+  record past the region; on an unsorted file it reads every record and
+  applies the same overlap test. Files written before this field are read
+  as sorted, which is what they always were assumed to be.
 
 The index
 ---------
@@ -123,14 +128,16 @@ entry when any of these hold:
 
 A second record at an already indexed position is not indexed again, so an
 entry always points at the first record at that position. A file with no
-mapped records, or converted with ``-noindex``, has no ``INDEX``.
+mapped records, one converted with ``-noindex``, or one whose records are
+not in coordinate order has no ``INDEX``.
 
 To answer ``rname:start-end`` a query looks up the entry with the largest
 position at or before ``start - max_ref_span`` on that reference, reads
 ``refid``, ``pos`` and ``cigar`` forward from that row, and stops as soon as
 ``refid`` changes or ``pos`` passes ``end``. Records in between are tested
 with the overlap rule in :doc:`querying`. This works because the file is in
-coordinate order; see :doc:`converting` for what happens when it is not.
+coordinate order. When ``coordinate_sorted`` is false the query skips the
+seek and the early stop and tests every record instead.
 
 The header
 ----------

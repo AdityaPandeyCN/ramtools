@@ -239,8 +239,9 @@ public:
    void SetBit(uint32_t bit) { compression_flags |= bit; }              ///< sets a bit of compression_flags
    bool TestBit(uint32_t bit) const { return compression_flags & bit; } ///< tests a bit of compression_flags
 
-   /// Creates the shared tables on first use and resets the per-file state
-   /// (index contents and longest span). Every writer and OpenRAMFile() call it.
+   /// Creates the shared tables on first use and resets the per-file state:
+   /// index contents, longest span and sort flag. Only the writers and
+   /// OpenRAMFile() call it; the constructor must not.
    static void InitializeRefs();
    static uint32_t GetMaxRefSpan() { return fgMaxRefSpan; } ///< longest span in the open or written file
    /// Widens the longest span seen in the file being written.
@@ -249,7 +250,9 @@ public:
       if (span > fgMaxRefSpan)
          fgMaxRefSpan = span;
    }
+   /// Whether the open or written file is in coordinate order.
    static bool IsCoordinateSorted() { return fgCoordinateSorted; }
+   /// Overrides the running order check, e.g. with a split file's own answer.
    static void SetCoordinateSorted(bool sorted) { fgCoordinateSorted = sorted; }
    /// Feeds one placed record to the running order check.
    static void NotePlacement(int32_t refid_, int32_t pos_)
