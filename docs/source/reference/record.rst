@@ -166,6 +166,12 @@ Shared state
 
 .. doxygenfunction:: RAMNTupleRecord::NoteRefSpan
 
+.. doxygenfunction:: RAMNTupleRecord::IsCoordinateSorted
+
+.. doxygenfunction:: RAMNTupleRecord::SetCoordinateSorted
+
+.. doxygenfunction:: RAMNTupleRecord::NotePlacement
+
 Files
 ~~~~~
 
@@ -177,7 +183,9 @@ Files
 
 .. doxygenfunction:: RAMNTupleRecord::ReadAllRefs
 
-.. doxygenfunction:: RAMNTupleRecord::WriteIndex
+.. doxygenfunction:: RAMNTupleRecord::WriteIndex(TFile &file)
+
+.. doxygenfunction:: RAMNTupleRecord::WriteIndex(TFile &file, const RAMNTupleIndex &index)
 
 .. doxygenfunction:: RAMNTupleRecord::ReadIndex
 

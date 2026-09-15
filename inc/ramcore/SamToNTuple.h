@@ -20,7 +20,7 @@
 bool samtoramntuple(const char *datafile, const char *treefile, int compression_algorithm, uint32_t quality_policy,
                     int threads = 1, size_t block_bytes = 64U << 20);
 
-/// Writes one RAM file per reference, named <output_prefix>_<rname>.root.
+/// Writes one RAM file per reference, named `<output_prefix>_<rname>.root`.
 /// Records stream to their file as they are parsed, in the order they arrive.
 void samtoramntuple_split_by_chromosome(const char *datafile, const char *output_prefix, int compression_algorithm,
                                         uint32_t quality_policy);

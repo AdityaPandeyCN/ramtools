@@ -198,8 +198,9 @@ public:
    void SetBit(uint32_t bit) { compression_flags |= bit; }              ///< sets a bit of compression_flags
    bool TestBit(uint32_t bit) const { return compression_flags & bit; } ///< tests a bit of compression_flags
 
-   /// Creates the shared tables on first use and resets the per-file state
-   /// (longest span and sort flag). Every writer and OpenRAMFile() call it.
+   /// Creates the shared tables on first use and resets the per-file state:
+   /// longest span and sort flag. Only the writers and OpenRAMFile() call it;
+   /// the constructor must not.
    static void InitializeRefs();
    static uint32_t GetMaxRefSpan() { return fgMaxRefSpan; } ///< longest span in the open or written file
    /// Widens the longest span seen in the file being written.
@@ -208,9 +209,12 @@ public:
       if (span > fgMaxRefSpan)
          fgMaxRefSpan = span;
    }
-   static bool IsCoordinateSorted() { return fgOrder.sorted; }               ///< whether region queries can seek
-   static void SetCoordinateSorted(bool sorted) { fgOrder.sorted = sorted; } ///< overrides the sort flag
-   static void NotePlacement(int32_t refid, int32_t pos) { fgOrder.Note(refid, pos); } ///< feeds the order check
+   /// Whether the open or written file is in coordinate order.
+   static bool IsCoordinateSorted() { return fgOrder.sorted; }
+   /// Overrides the running order check, e.g. with a split file's own answer.
+   static void SetCoordinateSorted(bool sorted) { fgOrder.sorted = sorted; }
+   /// Feeds one record to the running order check.
+   static void NotePlacement(int32_t refid, int32_t pos) { fgOrder.Note(refid, pos); }
    /// Reference bases covered by this record's CIGAR (0 when it has none).
    uint32_t GetRefSpan() const;
    static RAMNTupleRefs *GetRnameRefs() { return fgRnameRefs.get(); } ///< the RNAME table
