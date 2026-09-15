@@ -12,3 +12,18 @@ dl.cpp > dd {
 dl.cpp > dd > p:last-child {
     margin-bottom: 0;
 }
+
+/* Quieter headings: a clear scale without the oversized bold titles. */
+h1 {
+    font-size: 1.8rem;
+    font-weight: 600;
+}
+h2 {
+    font-size: 1.3rem;
+    font-weight: 600;
+    margin-top: 2.2rem;
+}
+h3 {
+    font-size: 1.1rem;
+    font-weight: 600;
+}

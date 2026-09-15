@@ -125,7 +125,7 @@ and ``OpenRAMFile()``.
 
 .. important::
 
-   **Constructing a record must never touch the shared state.**
+   Constructing a record must never touch the shared state.
 
    RNTuple constructs a ``RAMNTupleRecord`` whenever a view of the
    ``record`` field is created and whenever a writer model is created, and
