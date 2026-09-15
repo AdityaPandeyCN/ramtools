@@ -17,11 +17,11 @@ using namespace ROOT;
 
 std::unique_ptr<RAMNTupleRefs> RAMNTupleRecord::fgRnameRefs = nullptr;
 std::unique_ptr<RAMNTupleRefs> RAMNTupleRecord::fgRnextRefs = nullptr;
-std::unique_ptr<RAMNTupleIndex> RAMNTupleRecord::fgIndex = nullptr;
 uint32_t RAMNTupleRecord::fgMaxRefSpan = 0;
 bool RAMNTupleRecord::fgCoordinateSorted = true;
 int32_t RAMNTupleRecord::fgLastPlacedRefId = -1;
 int32_t RAMNTupleRecord::fgLastPlacedPos = -1;
+bool RAMNTupleRecord::fgSeenUnplaced = false;
 
 static constexpr std::array<char, 16> kCodeToSeq{'=', 'A', 'C', 'M', 'G', 'R', 'S', 'V',
                                                  'T', 'W', 'Y', 'H', 'K', 'D', 'B', 'N'};
@@ -138,70 +138,6 @@ void RAMNTupleRefs::Print() const
       printf("%d: %s\n", i, fRefVec[i].c_str());
    }
 }
-// RAMNTupleIndex Implementation
-void RAMNTupleIndex::AddItem(int32_t refid, int32_t pos, int64_t row)
-{
-   fIndex.push_back({refid, pos, row});
-   auto key = std::make_pair(refid, pos);
-   fIndexMap[key] = row;
-}
-
-int64_t RAMNTupleIndex::GetRow(int32_t refid, int32_t pos) const
-{
-   if (fIndexMap.empty() && !fIndex.empty()) {
-      const_cast<RAMNTupleIndex *>(this)->RebuildMap();
-   }
-
-   auto key = std::make_pair(refid, pos);
-   auto low = fIndexMap.lower_bound(key);
-
-   if (low == fIndexMap.end()) {
-      return -1;
-   } else if (low == fIndexMap.begin()) {
-      return low->second;
-   } else {
-      if (low->first.first == refid && low->first.second == pos) {
-         return low->second;
-      } else {
-         --low;
-         return low->second;
-      }
-   }
-}
-
-void RAMNTupleIndex::RebuildMap() const
-{
-   fIndexMap.clear();
-   for (const auto &entry : fIndex) {
-      fIndexMap[{entry.refid, entry.pos}] = entry.entry;
-   }
-}
-
-std::vector<int64_t> RAMNTupleIndex::GetRowsInRange(int32_t refid, int32_t start, int32_t end) const
-{
-   std::vector<int64_t> rows;
-
-   for (const auto &entry : fIndex) {
-      if (entry.refid == refid && entry.pos >= start && entry.pos <= end) {
-         rows.push_back(entry.entry);
-      }
-   }
-
-   return rows;
-}
-
-void RAMNTupleIndex::Print() const
-{
-   printf("RAMNTupleIndex map:\n");
-   size_t count = 0;
-   for (const auto &entry : fIndex) {
-      printf("%lld: refid=%d, pos=%d\n", static_cast<long long>(entry.entry), entry.refid, entry.pos);
-      if (++count > 10 && fIndex.size() > 20) {
-         printf("... (%zu more entries)\n", fIndex.size() - 10);
-         break;
-      }
-   }
-}
 // RAMNTupleRecord Implementation
 
 RAMNTupleRecord::RAMNTupleRecord()
@@ -216,8 +152,6 @@ void RAMNTupleRecord::EnsureTables()
       fgRnameRefs = std::make_unique<RAMNTupleRefs>();
    if (!fgRnextRefs)
       fgRnextRefs = std::make_unique<RAMNTupleRefs>();
-   if (!fgIndex)
-      fgIndex = std::make_unique<RAMNTupleIndex>();
 }
 
 // Resets the per-file state. Only the writers and OpenRAMFile() may call this:
@@ -226,11 +160,11 @@ void RAMNTupleRecord::EnsureTables()
 void RAMNTupleRecord::InitializeRefs()
 {
    EnsureTables();
-   fgIndex->Clear();
    fgMaxRefSpan = 0;
    fgCoordinateSorted = true;
    fgLastPlacedRefId = -1;
    fgLastPlacedPos = -1;
+   fgSeenUnplaced = false;
 }
 
 std::unique_ptr<RNTupleReader> RAMNTupleRecord::OpenRAMFile(const std::string &filename, const std::string &ntupleName)
@@ -241,7 +175,6 @@ std::unique_ptr<RNTupleReader> RAMNTupleRecord::OpenRAMFile(const std::string &f
    try {
       auto reader = RNTupleReader::Open(ntupleName, filename);
       ReadAllRefs(filename);
-      ReadIndex(filename);
       return reader;
    } catch (const std::exception &e) {
       ::Error("RAMNTupleRecord::OpenRAMFile", "Failed to open file: %s", e.what());
@@ -329,52 +262,6 @@ void RAMNTupleRecord::ReadAllRefs(const std::string &filename)
       }
    } catch (...) {
       // Metadata might not exist
-   }
-}
-
-void RAMNTupleRecord::WriteIndex(TFile &file)
-{
-   if (fgIndex)
-      WriteIndex(file, *fgIndex);
-}
-
-void RAMNTupleRecord::WriteIndex(TFile &file, const RAMNTupleIndex &index)
-{
-   if (index.Size() == 0 || !file.IsOpen())
-      return;
-   file.cd();
-
-   // Create index model
-   auto indexModel = RNTupleModel::Create();
-   auto indexField = indexModel->MakeField<std::vector<RAMNTupleIndex::IndexEntry>>("index_entries");
-
-   RNTupleWriteOptions writeOptions;
-   writeOptions.SetCompression(505);
-
-   auto indexWriter = RNTupleWriter::Append(std::move(indexModel), "INDEX", file, writeOptions);
-   auto indexEntry = indexWriter->GetModel().CreateEntry();
-   auto indexPtr = indexEntry->GetPtr<std::vector<RAMNTupleIndex::IndexEntry>>("index_entries");
-
-   *indexPtr = index.GetEntries();
-   indexWriter->Fill(*indexEntry);
-}
-
-void RAMNTupleRecord::ReadIndex(const std::string &filename)
-{
-   try {
-      auto reader = RNTupleReader::Open("INDEX", filename);
-      if (!reader || reader->GetNEntries() == 0)
-         return;
-
-      try {
-         auto index_view = reader->GetView<std::vector<RAMNTupleIndex::IndexEntry>>("index_entries");
-         const auto &entries = index_view(0);
-         fgIndex->SetEntries(entries);
-      } catch (...) {
-         // Field doesn't exist
-      }
-   } catch (...) {
-      // Index might not exist
    }
 }
 

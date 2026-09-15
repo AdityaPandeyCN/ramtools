@@ -14,12 +14,10 @@
 
 #include <string>
 #include <vector>
-#include <map>
 #include <memory>
 #include <cstdint>
 
 class RAMNTupleRefs;
-class RAMNTupleIndex;
 
 /**
  * \class RAMNTupleRefs
@@ -63,52 +61,6 @@ public:
 };
 
 /**
- * \class RAMNTupleIndex
- * \brief Sparse genomic index for fast region queries on RNTuple files.
- *
- * The index is stored as a plain `std::vector<IndexEntry>` for efficient
- * serialisation and complemented by a lazily-initialised `std::map` that
- * supports O(log n) look-ups by (refid,pos).
- */
-class RAMNTupleIndex {
-public:
-   struct IndexEntry {
-      int32_t refid;
-      int32_t pos;
-      int64_t entry;
-   };
-
-private:
-   std::vector<IndexEntry> fIndex;
-   mutable std::map<std::pair<int32_t, int32_t>, int64_t> fIndexMap;
-
-   void RebuildMap() const;
-
-public:
-   RAMNTupleIndex() = default;
-   ~RAMNTupleIndex() = default;
-
-   void AddItem(int32_t refid, int32_t pos, int64_t row);
-   int64_t GetRow(int32_t refid, int32_t pos) const;
-   std::vector<int64_t> GetRowsInRange(int32_t refid, int32_t start, int32_t end) const;
-
-   void Print() const;
-   size_t Size() const { return fIndex.size(); }
-
-   // For RNTuple serialization
-   const std::vector<IndexEntry> &GetEntries() const { return fIndex; }
-   void SetEntries(const std::vector<IndexEntry> &entries)
-   {
-      fIndex = entries;
-      fIndexMap.clear();
-   }
-   void Clear()
-   {
-      fIndex.clear();
-      fIndexMap.clear();
-   }
-};
-/**
  * \class RAMNTupleRecord
  * \brief Alignment record stored in the ROOT Experimental RNTuple format.
  *
@@ -116,10 +68,10 @@ public:
  * integrates naturally with the columnar storage back-end. Quality strings can
  * be stored as Phred+33, Illumina-binned, or dropped.
  *
- * Static managers (`fgRnameRefs`, `fgRnextRefs`, `fgIndex`) provide shared
- * metadata for reference names and sparse region lookup.
+ * Static managers (`fgRnameRefs`, `fgRnextRefs`) provide the shared
+ * reference-name tables.
  *
- * \sa RAMNTupleRefs, RAMNTupleIndex
+ * \sa RAMNTupleRefs
  */
 class RAMNTupleRecord {
 public:
@@ -146,22 +98,23 @@ public:
 
    uint32_t compression_flags;
 
-   // Static reference and index managers
+   // Static reference managers
    static std::unique_ptr<RAMNTupleRefs> fgRnameRefs;
    static std::unique_ptr<RAMNTupleRefs> fgRnextRefs;
-   static std::unique_ptr<RAMNTupleIndex> fgIndex;
 
    /// Longest reference span of any alignment in the file, so a region query
    /// knows how far before the region a read may start. 0 means unrecorded.
    static uint32_t fgMaxRefSpan;
 
-   /// Whether the records are in coordinate order. A region query can only
-   /// seek to an index entry and stop at the first record past the region when
-   /// they are; on an unsorted file it reads every record. Files written before
-   /// this field carry no answer and are read as sorted, as they always were.
+   /// Whether the records are in coordinate order: placed records ordered by
+   /// (refid, pos) and unplaced ones after them, as samtools sort writes them.
+   /// A region query can only seek to the region and stop at the first record
+   /// past it when they are; on an unsorted file it reads every record. Files
+   /// written before this field carry no answer and are read as sorted.
    static bool fgCoordinateSorted;
    static int32_t fgLastPlacedRefId;
    static int32_t fgLastPlacedPos;
+   static bool fgSeenUnplaced;
 
 public:
    RAMNTupleRecord();
@@ -226,10 +179,15 @@ public:
    }
    static bool IsCoordinateSorted() { return fgCoordinateSorted; }
    static void SetCoordinateSorted(bool sorted) { fgCoordinateSorted = sorted; }
-   /// Feeds one placed record to the running order check.
+   /// Feeds one record to the running order check; refid -1 is an unplaced
+   /// record, which coordinate order puts after every placed one.
    static void NotePlacement(int32_t refid_, int32_t pos_)
    {
-      if (refid_ < fgLastPlacedRefId || (refid_ == fgLastPlacedRefId && pos_ < fgLastPlacedPos))
+      if (refid_ < 0) {
+         fgSeenUnplaced = true;
+         return;
+      }
+      if (fgSeenUnplaced || refid_ < fgLastPlacedRefId || (refid_ == fgLastPlacedRefId && pos_ < fgLastPlacedPos))
          fgCoordinateSorted = false;
       fgLastPlacedRefId = refid_;
       fgLastPlacedPos = pos_;
@@ -238,16 +196,12 @@ public:
    uint32_t GetRefSpan() const;
    static RAMNTupleRefs *GetRnameRefs() { return fgRnameRefs.get(); }
    static RAMNTupleRefs *GetRnextRefs() { return fgRnextRefs.get(); }
-   static RAMNTupleIndex *GetIndex() { return fgIndex.get(); }
 
    // File I/O
    static std::unique_ptr<ROOT::RNTupleReader>
    OpenRAMFile(const std::string &filename, const std::string &ntupleName = "RAM");
    static void WriteAllRefs(TFile &file);
    static void ReadAllRefs(const std::string &filename = "");
-   static void WriteIndex(TFile &file);
-   static void WriteIndex(TFile &file, const RAMNTupleIndex &index);
-   static void ReadIndex(const std::string &filename = "");
 
    // RNTuple model creation
    static std::unique_ptr<ROOT::RNTupleModel> MakeModel();
