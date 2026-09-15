@@ -48,7 +48,10 @@ Where to go next
   to understand why queries are fast or to read the files from your own code.
 - :doc:`reference/index` is the C++ API, generated from the headers, for
   using ``ramcore`` from your own code.
-- :doc:`dev/contributing` is for changing the code.
+- :doc:`dev/architecture` explains how the code is put together: the
+  layout, how a record gets in, how a query gets out, and the shared state.
+- :doc:`dev/contributing` is about getting a change in: tests, style, CI,
+  pull requests.
 
 .. toctree::
    :maxdepth: 2
@@ -60,4 +63,5 @@ Where to go next
    user/format
    user/benchmarks
    reference/index
+   dev/architecture
    dev/contributing

@@ -23,7 +23,7 @@ per process. ``InitializeRefs()`` resets the per-file parts; only the
 writers and ``OpenRAMFile()`` call it, and constructing a record never
 does. Two files cannot be open for querying at the same time in one
 process. The rule and the bug it prevents are described in
-:doc:`../dev/contributing`.
+:doc:`../dev/architecture`.
 
 **Values in, values out.** Setters take SAM values (1-based positions, text
 CIGAR, plain bases, Phred+33 quality) and store the encoded form. Getters
