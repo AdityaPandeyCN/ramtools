@@ -35,6 +35,10 @@ if(TARGET samtoramntuple)
     add_test(NAME bamtoramntuple_rejects_bad_compression COMMAND bamtoramntuple in.bam -compression 999)
     set_tests_properties(samtoramntuple_rejects_bad_compression bamtoramntuple_rejects_bad_compression
         PROPERTIES PASS_REGULAR_EXPRESSION "invalid -compression value")
+    add_test(NAME samtoramntuple_rejects_bad_threads COMMAND samtoramntuple in.sam -threads 0)
+    add_test(NAME bamtoramntuple_rejects_bad_threads COMMAND bamtoramntuple in.bam -threads x)
+    set_tests_properties(samtoramntuple_rejects_bad_threads bamtoramntuple_rejects_bad_threads
+        PROPERTIES PASS_REGULAR_EXPRESSION "invalid -threads value")
 endif()
 
 if(TARGET ramdump)

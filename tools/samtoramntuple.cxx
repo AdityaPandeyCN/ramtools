@@ -1,5 +1,6 @@
 #include "ramcore/SamToNTuple.h"
 #include "rntuple/RAMNTupleRecord.h"
+#include <TROOT.h>
 #include <iostream>
 #include <string>
 #include <cstring>
@@ -34,6 +35,7 @@ int main(int argc, char* argv[]) {
        std::cout << "  -illumina    Use Illumina quality binning\n";
        std::cout << "  -dropqual    Drop quality scores\n";
        std::cout << "  -compression N  ROOT compression code, algorithm*100+level (default 505, ZSTD level 5)\n";
+       std::cout << "  -threads N   compress pages on N threads (default 1)\n";
        return 1;
     }
     
@@ -44,6 +46,8 @@ int main(int argc, char* argv[]) {
     uint32_t quality_mode = RAMNTupleRecord::kPhred33;
     int compression = 505;
     bool want_compression = false;
+    int threads = 1;
+    bool want_threads = false;
 
     for (int i = 2; i < argc; i++) {
         std::string arg = argv[i];
@@ -53,6 +57,15 @@ int main(int argc, char* argv[]) {
               return 1;
            }
            want_compression = false;
+        } else if (want_threads) {
+           threads = std::atoi(arg.c_str());
+           if (threads < 1) {
+              std::cerr << "invalid -threads value '" << arg << "'\n";
+              return 1;
+           }
+           want_threads = false;
+        } else if (arg == "-threads") {
+           want_threads = true;
         } else if (arg == "-split") {
            do_split = true;
         } else if (arg == "-illumina") {
@@ -69,6 +82,14 @@ int main(int argc, char* argv[]) {
        std::cerr << "-compression needs a value\n";
        return 1;
     }
+    if (want_threads) {
+       std::cerr << "-threads needs a value\n";
+       return 1;
+    }
+    // The writer compresses pages on ROOT's thread pool once implicit
+    // multithreading is on; the parser stays sequential.
+    if (threads > 1)
+       ROOT::EnableImplicitMT(threads);
 
     std::string outfile;
     if (!output) {

@@ -126,6 +126,23 @@ TEST_F(RamdumpTest, RegionAndOutputFile)
    EXPECT_EQ(ReadFile(kOutFile), "r5\t0\tchr2\t10\t60\t4M\t*\t0\t0\tACGT\tIIII\n");
 }
 
+// -threads only changes how pages are compressed; the records must not change.
+TEST_F(RamdumpTest, ThreadedConversionWritesTheSameRecords)
+{
+   const char *threaded = "ramdump_test_threads.root";
+   std::string cmd{};
+   cmd += SAMTORAMNTUPLE_BIN;
+   cmd += " ";
+   cmd += kSamFile;
+   cmd += " ";
+   cmd += threaded;
+   cmd += " -threads 2 >/dev/null 2>&1";
+   ASSERT_EQ(std::system(cmd.c_str()), 0);
+   ASSERT_EQ(Status("-h -o ramdump_test.out", threaded), 0);
+   EXPECT_EQ(ReadFile(kOutFile), Header() + Records());
+   std::remove(threaded);
+}
+
 TEST_F(RamdumpTest, RejectsBadArguments)
 {
    EXPECT_NE(Status("-f abc", kRamFile), 0);
