@@ -76,23 +76,11 @@ samtools directly.
 
 HG00154 from the 1000 Genomes Project: 196,040,370 records, 72.06 GB as SAM, coordinate sorted, GRCh37 reference names (`1`, not `chr1`). Run on 4 cores with 11 GB of memory, input and output on the same hard disk, samtools 1.13 with 4 threads, `samtoramntuple` on one thread. Every output holds the same 196,040,370 records. Query times are for the binary-search seek of #83.
 
-### File size and conversion time
+### File size
 
 ![File size of HG00154 in each format](assets/benchmark_sizes.svg)
 
-| Format | Size (GB) | vs BAM | Wall | CPU (s) |
-|--------|-----------|--------|------|---------|
-| SAM | 72.06 | | | |
-| BAM, `samtools view -b` | 15.22 | 1.00x | 24:08 | 3,589 |
-| CRAM, `samtools view -C -T ref.fasta` | 7.77 | 1.96x | 12:34 | 1,817 |
-| CRAM + reference FASTA | 10.93 | 1.39x | | |
-| RAM, `-compression 505` (ZSTD 5, default) | 11.43 | 1.33x | 1:30:06 | 5,258 |
-| RAM, `-compression 509` (ZSTD 9) | 10.38 | 1.47x | 14:26:39 | 51,397 |
-| RAM, `-compression 101` (ZLIB 1) | 14.14 | 1.08x | 35:27 | 1,859 |
-| RAM, `-compression 404` (LZ4 4) | 16.54 | 0.92x | 1:06:59 | 3,710 |
-| RAM, `-compression 0` | 83.71 | 0.18x | 44:19 | 1,278 |
-
-A CRAM cannot be read without its reference, so the combined row is the size of a self-contained copy. samtools compressed on four threads, so CPU time is the comparable column. ZSTD 9 is the only setting that comes in under CRAM plus its reference, at ten times the conversion time of ZSTD 5 for 9% less space.
+BAM is `samtools view -b`, CRAM is `samtools view -C -T ref.fasta`, and each RAM file is `samtoramntuple -compression N` with the flag shown. A CRAM cannot be read without its reference, so the stacked bar is the size of a self-contained copy. Uncompressed RAM (`-compression 0`) is 83.7 GB, larger than the SAM, because every string and vector column carries an offset column that the codecs then remove. ZSTD 9 is the only setting that comes in under CRAM plus its reference, at ten times the conversion time of ZSTD 5 for 9% less space.
 
 ### Region queries
 
