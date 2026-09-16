@@ -174,3 +174,22 @@ A RAM query spends about 0.4 s starting ROOT and opening the file, then finds th
 ### Compression flags
 
 `-compression N` takes a ROOT compression code, algorithm times 100 plus level: 1 is ZLIB, 2 LZMA, 4 LZ4, 5 ZSTD, with levels 1 to 9, and 0 means no compression. The default is 505, ZSTD level 5. LZ4 converts fastest and gives the largest files, LZMA and high ZSTD levels the smallest at a much higher conversion cost; the codec makes little difference to query time.
+
+## Contributing
+
+Bug reports, test cases and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md)
+describes the development build, the test suites, the formatting and clang-tidy
+checks that run on every pull request, and what a reviewer looks for. The short
+version: branch from `develop`, keep each PR to one topic, and put the samtools
+command that confirms your result in the description.
+
+## Reporting a problem
+
+Open an issue at https://github.com/compiler-research/ramtools/issues. Include
+the command you ran, its output, your ROOT version, and for a wrong result the
+samtools command that gives the answer you expected. A few SAM lines that
+reproduce the problem are the most useful thing you can attach.
+
+## License
+
+RAMTools is released under the Apache License 2.0; see [LICENSE](LICENSE).
