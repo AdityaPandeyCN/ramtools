@@ -1,76 +1,152 @@
-# RAMTools - ROOT Alignment/Map Format Tools
+# RAMTools
 
-RAMTools provides efficient tools for converting SAM files to ROOT's modern, columnar RNTuple format (RAM - ROOT Alignment/Map) and working with genomic alignment data.
+RAM (ROOT Alignment/Map) is a file format for aligned sequencing reads, the same
+data as a BAM, stored column by column in ROOT's RNTuple format. A RAM file is
+about a quarter smaller than the BAM of the same reads, needs no reference to be
+read, and answers region queries such as `chr13:32889611-32973805` the way
+`samtools view` does. RAMTools converts SAM and BAM files to RAM, queries them,
+and writes them back out as SAM so every result can be checked against samtools.
 
-## Features
+The tools:
 
-- High-performance SAM to RAM conversion
-- Chromosome-based splitting for parallel processing
-- Region-based querying capabilities
+| Tool | What it does |
+|------|--------------|
+| `samtoramntuple` | converts a SAM file to RAM |
+| `bamtoramntuple` | converts a BAM file to RAM |
+| `ramdump` | writes a RAM file, or a region of it, out as SAM; takes the `samtools view` options |
+| `ramntupleview` | counts the records in a region and reports the query time |
 
-## Requirements
+## Installation
 
-- ROOT 6.38+
-- C++17 compatible compiler
-- CMake 3.16+
+RAMTools builds on Linux. The steps below are for Ubuntu; other distributions
+need the same three things: ROOT, htslib and a C++ compiler with CMake.
 
-## Quick Start
+### 1. System packages
+
 ```bash
-# 1. Build the tools
-mkdir build && cd build
-cmake ..
-make -j$(nproc)
-
-# 2. Convert a SAM file to the RAM format
-./tools/samtoramntuple input.sam output.root
-
-# 3. Query a specific region from the command line
-./tools/ramntupleview output.root "chr1:15700-15800"
+sudo apt-get update
+sudo apt-get install -y build-essential cmake git pkg-config libhts-dev libtbb-dev libvdt-dev
 ```
 
-## Command-Line Tools
+`libhts-dev` is htslib, which reads the BAM input. `libtbb-dev` and `libvdt-dev`
+are needed by ROOT.
 
-The primary way to interact with RAMTools is through these command-line executables.
+### 2. ROOT
 
-### SAM to RAM Conversion
+RAMTools needs ROOT 6.38 or newer. The quickest way is the prebuilt archive from
+the ROOT project; pick the one matching your Ubuntu version from
+https://root.cern/install/all_releases/. For Ubuntu 24.04:
 
-Convert a standard SAM file into the optimized RNTuple-based RAM format.
 ```bash
-# Basic conversion
-./tools/samtoramntuple input.sam output.root
-
-# Split by chromosome for parallel processing
-# (Creates output_chr1.root, output_chr2.root, etc.)
-./tools/samtoramntuple input.sam output -split
+wget https://github.com/root-project/root/releases/download/v6-38-06/root_v6.38.06.Linux-ubuntu24.04-x86_64-gcc13.3.tar.gz
+sudo tar -xzf root_v6.38.06.Linux-ubuntu24.04-x86_64-gcc13.3.tar.gz -C /opt/
 ```
 
-Options: `-noindex` skips the region index, `-illumina` stores 8-level binned
-quality scores, `-dropqual` stores none, `-compression N` sets the ROOT
-compression code (algorithm*100+level; the default 505 is ZSTD level 5).
+ROOT has to be put on your path in every terminal you use it from:
 
-The index needs the input in coordinate order. An unsorted input converts
-fine but gets no index, and region queries on it read the whole file.
-
-### Region Querying
-
-Count the records overlapping a genomic region, as `samtools view -c` does.
 ```bash
-# Usage: ./tools/ramntupleview [input.root] "[chromosome]:[start]-[end]"
-./tools/ramntupleview output.root "chr1:10150-10300"
+source /opt/root/bin/thisroot.sh
 ```
 
-### Dumping back to SAM
+Add that line to your `~/.bashrc` to make it permanent. `root --version` should
+then print 6.38. If you use conda, `conda install -c conda-forge root` works as
+well and needs no `thisroot.sh`.
 
-`ramdump` writes a RAM file out as SAM and takes the `samtools view` options
-`-h`, `-H`, `-c`, `-f`, `-F` and `-o`, so its output can be checked against
-samtools directly.
+### 3. Build RAMTools
+
 ```bash
-# The whole file with its header; should reproduce the input SAM
-./tools/ramdump -h output.root > roundtrip.sam
-
-# Count primary alignments in a region
-./tools/ramdump -c -F 0x900 output.root "chr1:10150-10300"
+git clone https://github.com/compiler-research/ramtools.git
+cd ramtools
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
 ```
+
+The tools are in `build/tools/`. Running one without arguments prints its
+usage:
+
+```bash
+./build/tools/samtoramntuple
+```
+
+The tests are optional and take a minute:
+
+```bash
+ctest --test-dir build
+```
+
+## Converting to RAM
+
+From a SAM file:
+
+```bash
+./build/tools/samtoramntuple reads.sam reads.ram
+```
+
+From a BAM file:
+
+```bash
+./build/tools/bamtoramntuple reads.bam reads.ram
+```
+
+Both print the reference names and the number of records written. Options for
+either tool:
+
+| Option | Effect |
+|--------|--------|
+| `-compression N` | ROOT compression code, algorithm times 100 plus level; the default 505 is ZSTD level 5 (see below) |
+| `-illumina` | stores quality scores in Illumina's 8 bins, which makes the file smaller |
+| `-dropqual` | stores no quality scores |
+| `-split` | `samtoramntuple` only: one RAM file per chromosome, `reads_chr1.root`, `reads_chr2.root`, and so on |
+
+Sort the input by coordinate first, as `samtools sort` does. An unsorted file
+converts fine, but region queries on it have to read the whole file instead of
+jumping to the region; the converter says so when that happens.
+
+## Querying a region
+
+Regions are written as in samtools: `chr1`, `chr1:1000`, or `chr1:1000-2000`,
+1-based and inclusive. Reference names are whatever the input used, so a
+GRCh37 file is queried as `13:32889611-32973805`, not `chr13`.
+
+Count the records overlapping a region, as `samtools view -c` does:
+
+```bash
+./build/tools/ramdump -c reads.ram chr1:10150-10300
+```
+
+Print them as SAM lines:
+
+```bash
+./build/tools/ramdump reads.ram chr1:10150-10300
+```
+
+`ramdump` takes the `samtools view` options `-h` (include the header), `-H`
+(header only), `-c` (count only), `-f` and `-F` (keep records with all, or none,
+of these FLAG bits) and `-o FILE`. For example, primary alignments only:
+
+```bash
+./build/tools/ramdump -c -F 0x900 reads.ram chr1:10150-10300
+```
+
+`ramntupleview` counts as well and prints how long the query took:
+
+```bash
+./build/tools/ramntupleview reads.ram chr1:10150-10300
+```
+
+## Checking a RAM file against samtools
+
+A RAM file holds everything the input did, so it can be written back out and
+compared:
+
+```bash
+./build/tools/ramdump -h reads.ram > roundtrip.sam
+samtools view -c reads.bam chr1:10150-10300
+./build/tools/ramdump -c reads.ram chr1:10150-10300
+```
+
+The two counts must agree, and `roundtrip.sam` reproduces the input line for
+line.
 
 ## Benchmarks
 
