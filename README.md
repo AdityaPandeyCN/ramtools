@@ -78,6 +78,8 @@ HG00154 from the 1000 Genomes Project: 196,040,370 records, 72.06 GB as SAM, coo
 
 ### File size and conversion time
 
+![File size of HG00154 in each format](assets/benchmark_sizes.svg)
+
 | Format | Size (GB) | vs BAM | Wall | CPU (s) |
 |--------|-----------|--------|------|---------|
 | SAM | 72.06 | | | |
