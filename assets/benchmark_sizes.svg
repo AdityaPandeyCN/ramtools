@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="720" height="396" viewBox="0 0 720 396" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="356" viewBox="0 0 720 356" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">
   <title>File size of HG00154 in each format, in GB</title>
-  <rect width="720" height="396" fill="#fcfcfb" rx="6"/>
+  <rect width="720" height="356" fill="#fcfcfb" rx="6"/>
   <text x="24" y="30" font-size="15" font-weight="600" fill="#0b0b0b">HG00154, 196 million reads: file size in GB</text>
   <text x="24" y="50" fill="#52514e">Smaller is better. Uncompressed RAM (83.7 GB) not shown.</text>
   <g font-size="12" fill="#52514e">
@@ -17,7 +17,6 @@
     <text x="214" y="240">RAM, ZSTD 5 (default)</text>
     <text x="214" y="272">CRAM + reference FASTA</text>
     <text x="214" y="304">RAM, ZSTD 9</text>
-    <text x="214" y="336">CRAM</text>
   </g>
 
   <!-- 430 px = 72.06 GB; bars 20 px thick, rounded at the data end, square at the baseline; 2 px gap between stacked segments -->
@@ -30,7 +29,6 @@
     <rect x="226.0" y="258" width="44.4" height="20" fill="#eb6834"/>
     <path d="M272.4 258 h14.8 a4 4 0 0 1 4 4 v12 a4 4 0 0 1 -4 4 h-14.8 z" fill="#4a3aa7"/>
     <path d="M226.0 290 h57.9 a4 4 0 0 1 4 4 v12 a4 4 0 0 1 -4 4 h-57.9 z" fill="#2a78d6"/>
-    <path d="M226.0 322 h42.4 a4 4 0 0 1 4 4 v12 a4 4 0 0 1 -4 4 h-42.4 z" fill="#eb6834"/>
   </g>
 
   <g fill="#0b0b0b">
@@ -41,9 +39,8 @@
     <text x="302.2" y="240">11.43</text>
     <text x="299.2" y="272">10.93</text>
     <text x="295.9" y="304">10.38</text>
-    <text x="280.4" y="336">7.77</text>
   </g>
 
-  <line x1="226" y1="94" x2="226" y2="350" stroke="#d8d6cf" stroke-width="1"/>
-  <text x="24" y="376" fill="#52514e" font-size="12">CRAM plus its reference is the size of a self-contained copy. RAM and BAM need no other file.</text>
+  <line x1="226" y1="94" x2="226" y2="318" stroke="#d8d6cf" stroke-width="1"/>
+  <text x="24" y="344" fill="#52514e" font-size="12">CRAM alone is 7.77 GB but cannot be read without its reference; RAM and BAM need no other file.</text>
 </svg>
