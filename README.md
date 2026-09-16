@@ -96,6 +96,7 @@ either tool:
 | `-compression N` | ROOT compression code, algorithm times 100 plus level; the default 505 is ZSTD level 5 (see below) |
 | `-illumina` | stores quality scores in Illumina's 8 bins, which makes the file smaller |
 | `-dropqual` | stores no quality scores |
+| `-threads N` | compresses on N threads; four threads roughly halve the conversion time |
 | `-split` | `samtoramntuple` only: one RAM file per chromosome, `reads_chr1.root`, `reads_chr2.root`, and so on |
 
 Sort the input by coordinate first, as `samtools sort` does. An unsorted file
