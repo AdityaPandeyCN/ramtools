@@ -74,7 +74,7 @@ samtools directly.
 
 ## Benchmarks
 
-HG00154 from the 1000 Genomes Project: 196,040,370 records, 72.06 GB as SAM, coordinate sorted, GRCh37 reference names (`1`, not `chr1`). Run on 4 cores with 11 GB of memory, input and output on the same hard disk, samtools 1.13 with 4 threads, `samtoramntuple` on one thread. Every output holds the same 196,040,370 records.
+HG00154 from the 1000 Genomes Project: 196,040,370 records, 72.06 GB as SAM, coordinate sorted, GRCh37 reference names (`1`, not `chr1`). Run on 4 cores with 11 GB of memory, input and output on the same hard disk, samtools 1.13 with 4 threads, `samtoramntuple` on one thread. Every output holds the same 196,040,370 records. Query times are for the binary-search seek of #83.
 
 ### File size and conversion time
 
@@ -85,12 +85,12 @@ HG00154 from the 1000 Genomes Project: 196,040,370 records, 72.06 GB as SAM, coo
 | CRAM, `samtools view -C -T ref.fasta` | 7.77 | 1.96x | 12:34 | 1,817 |
 | CRAM + reference FASTA | 10.93 | 1.39x | | |
 | RAM, `-compression 505` (ZSTD 5, default) | 11.43 | 1.33x | 1:30:06 | 5,258 |
-| RAM, `-compression 509` (ZSTD 9) | pending | | | |
-| RAM, `-compression 101` (ZLIB 1) | pending | | | |
-| RAM, `-compression 404` (LZ4 4) | pending | | | |
-| RAM, `-compression 0` | pending | | | |
+| RAM, `-compression 509` (ZSTD 9) | 10.38 | 1.47x | 14:26:39 | 51,397 |
+| RAM, `-compression 101` (ZLIB 1) | 14.14 | 1.08x | 35:27 | 1,859 |
+| RAM, `-compression 404` (LZ4 4) | 16.54 | 0.92x | 1:06:59 | 3,710 |
+| RAM, `-compression 0` | 83.71 | 0.18x | 44:19 | 1,278 |
 
-A CRAM cannot be read without its reference, so the combined row is the size of a self-contained copy. samtools compressed on four threads, so CPU time is the comparable column.
+A CRAM cannot be read without its reference, so the combined row is the size of a self-contained copy. samtools compressed on four threads, so CPU time is the comparable column. ZSTD 9 is the only setting that comes in under CRAM plus its reference, at ten times the conversion time of ZSTD 5 for 9% less space.
 
 ### Region queries
 
@@ -98,12 +98,12 @@ Records overlapping a region, counted with `samtools view -c` for BAM and CRAM a
 
 | Region | Records | BAM (s) | CRAM (s) | RAM (s) |
 |--------|---------|---------|----------|---------|
-| 100 bp, `1:1000000-1000100` | 2 | 0.07 | 0.05 | 2.55 |
-| BRCA2, `13:32889611-32973805` | 6,057 | 0.07 | 0.07 | 2.24 |
-| 10 Mb, `1:10000000-20000000` | 582,985 | 0.93 | 2.18 | 2.94 |
-| 100 Mb, `2:1-100000000` | 7,048,385 | 8.77 | 21.98 | 3.13 |
+| 100 bp, `1:1000000-1000100` | 2 | 0.15 | 0.10 | 0.48 |
+| BRCA2, `13:32889611-32973805` | 6,057 | 0.10 | 0.09 | 0.39 |
+| 10 Mb, `1:10000000-20000000` | 582,985 | 0.80 | 1.75 | 0.40 |
+| 100 Mb, `2:1-100000000` | 7,048,385 | 8.59 | 21.43 | 0.85 |
 
-A RAM query spends about 2.4 s opening the file (ROOT start-up, the index of 1.9 million entries, the ntuple metadata) and then counts about 11 million records per second, since a count reads only the position and CIGAR columns. It is slower than samtools on small regions and faster on large ones.
+A RAM query spends about 0.4 s starting ROOT and opening the file, then finds the region by binary search and counts about 15 million records per second, since a count reads only the position and CIGAR columns. It is slower than samtools on small regions and faster from about 10 Mb up.
 
 ### Compression codecs
 
@@ -122,8 +122,10 @@ Query time on the full file for each codec, `ramdump -c`, best of three.
 
 | Codec | 10 Mb (s) | 100 Mb (s) |
 |-------|-----------|------------|
-| none | pending | pending |
-| LZ4 4 | pending | pending |
-| ZLIB 1 | pending | pending |
-| ZSTD 5 | 2.94 | 3.13 |
-| ZSTD 9 | pending | pending |
+| none | 0.55 | 0.88 |
+| LZ4 4 | 0.46 | 0.79 |
+| ZLIB 1 | 0.52 | 1.11 |
+| ZSTD 5 | 0.51 | 0.90 |
+| ZSTD 9 | 0.53 | 0.91 |
+
+The codec makes little difference to a query: decompressing the three columns a count reads is a small part of its time.
