@@ -95,27 +95,6 @@ Records overlapping a region, counted with `samtools view -c` for BAM and CRAM a
 
 A RAM query spends about 0.4 s starting ROOT and opening the file, then finds the region by binary search and counts about 15 million records per second, since a count reads only the position and CIGAR columns. It is slower than samtools on small regions and faster from about 10 Mb up.
 
-### Compression codecs
+### Compression flags
 
-Sizes on a 2 million record slice of the same sample (734 MB as SAM, 162 MB as BAM), one thread. LZMA 9 gives the same size as LZMA 7. Without compression the file is larger than the SAM because every string and vector column carries an offset column.
-
-| Flag | Codec | Size (MB) | vs BAM | Conversion (s) |
-|------|-------|-----------|--------|----------------|
-| 0 | none | 857.1 | 0.19x | 18 |
-| 404 | LZ4 4 | 175.1 | 0.93x | 26 |
-| 101 | ZLIB 1 | 149.8 | 1.08x | 20 |
-| 505 | ZSTD 5 (default) | 121.7 | 1.33x | 53 |
-| 207 | LZMA 7 | 115.4 | 1.40x | 352 |
-| 509 | ZSTD 9 | 111.1 | 1.46x | 523 |
-
-Query time on the full file for each codec, `ramdump -c`, best of three.
-
-| Codec | 10 Mb (s) | 100 Mb (s) |
-|-------|-----------|------------|
-| none | 0.55 | 0.88 |
-| LZ4 4 | 0.46 | 0.79 |
-| ZLIB 1 | 0.52 | 1.11 |
-| ZSTD 5 | 0.51 | 0.90 |
-| ZSTD 9 | 0.53 | 0.91 |
-
-The codec makes little difference to a query: decompressing the three columns a count reads is a small part of its time.
+`-compression N` takes a ROOT compression code, algorithm times 100 plus level: 1 is ZLIB, 2 LZMA, 4 LZ4, 5 ZSTD, with levels 1 to 9, and 0 means no compression. The default is 505, ZSTD level 5. LZ4 converts fastest and gives the largest files, LZMA and high ZSTD levels the smallest at a much higher conversion cost; the codec makes little difference to query time.
