@@ -46,7 +46,11 @@ Convert a standard SAM file into the optimized RNTuple-based RAM format.
 
 Options: `-illumina` stores 8-level binned quality scores, `-dropqual`
 stores none, `-compression N` sets the ROOT compression code
-(algorithm*100+level; the default 505 is ZSTD level 5).
+(algorithm*100+level; the default 505 is ZSTD level 5) and `-threads N`
+compresses pages on N threads (default 1). The parser itself stays
+sequential, so the gain levels off after a few threads; the output file is
+the same whatever the count. `bamtoramntuple input.bam output.root` converts
+BAM and takes the same options apart from `-split`.
 
 Region queries seek by binary search over the position column, which needs
 the input in coordinate order. An unsorted input converts fine, but region
