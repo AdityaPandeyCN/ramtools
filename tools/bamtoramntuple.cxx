@@ -3,6 +3,8 @@
 #include "rntuple/RAMNTupleRecord.h"
 
 #include <TROOT.h>
+#include <cctype>
+#include <climits>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
@@ -24,6 +26,19 @@ bool ParseCompression(const std::string &text, int &code)
    if (value != 0 && (!known || level < 1 || level > 9))
       return false;
    code = static_cast<int>(value);
+   return true;
+}
+
+// Thread count: a positive decimal integer and nothing else, so "3x" is an
+// error rather than 3.
+bool ParseThreads(const std::string &text, int &threads)
+{
+   char *end = nullptr;
+   const long value = std::strtol(text.c_str(), &end, 10);
+   if (text.empty() || !std::isdigit(static_cast<unsigned char>(text[0])) || *end != '\0' || value < 1 ||
+       value > INT_MAX)
+      return false;
+   threads = static_cast<int>(value);
    return true;
 }
 
@@ -59,8 +74,7 @@ int main(int argc, char *argv[])
          }
          want_compression = false;
       } else if (want_threads) {
-         threads = std::atoi(arg.c_str());
-         if (threads < 1) {
+         if (!ParseThreads(arg, threads)) {
             std::cerr << "invalid -threads value '" << arg << "'\n";
             return 1;
          }

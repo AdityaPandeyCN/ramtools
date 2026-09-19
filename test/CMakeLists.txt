@@ -37,7 +37,11 @@ if(TARGET samtoramntuple)
         PROPERTIES PASS_REGULAR_EXPRESSION "invalid -compression value")
     add_test(NAME samtoramntuple_rejects_bad_threads COMMAND samtoramntuple in.sam -threads 0)
     add_test(NAME bamtoramntuple_rejects_bad_threads COMMAND bamtoramntuple in.bam -threads x)
+    # A number followed by garbage must not be silently truncated to the number.
+    add_test(NAME samtoramntuple_rejects_trailing_threads COMMAND samtoramntuple in.sam -threads 3sdfd)
+    add_test(NAME bamtoramntuple_rejects_trailing_threads COMMAND bamtoramntuple in.bam -threads 3sdfd)
     set_tests_properties(samtoramntuple_rejects_bad_threads bamtoramntuple_rejects_bad_threads
+        samtoramntuple_rejects_trailing_threads bamtoramntuple_rejects_trailing_threads
         PROPERTIES PASS_REGULAR_EXPRESSION "invalid -threads value")
 endif()
 
