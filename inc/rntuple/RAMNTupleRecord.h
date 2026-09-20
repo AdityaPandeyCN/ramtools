@@ -65,6 +65,35 @@ public:
 };
 
 /**
+ * \struct RAMCoordinateOrder
+ * \brief Running check of coordinate order.
+ *
+ * Coordinate order means placed records ordered by (refid, pos) and unplaced
+ * ones (refid -1) after every placed one, as samtools sort writes them. Feed
+ * the records in file order to Note(); `sorted` stays true as long as they
+ * comply. RAMNTupleRecord keeps one for the open file; the converter keeps one
+ * per input block and one for the whole file.
+ */
+struct RAMCoordinateOrder {
+   int32_t last_refid = -1;
+   int32_t last_pos = -1;
+   bool seen_unplaced = false;
+   bool sorted = true;
+
+   void Note(int32_t refid, int32_t pos)
+   {
+      if (refid < 0) {
+         seen_unplaced = true;
+         return;
+      }
+      if (seen_unplaced || refid < last_refid || (refid == last_refid && pos < last_pos))
+         sorted = false;
+      last_refid = refid;
+      last_pos = pos;
+   }
+};
+
+/**
  * \class RAMNTupleRecord
  * \brief Alignment record stored in the ROOT Experimental RNTuple format.
  *
@@ -110,15 +139,11 @@ public:
    /// knows how far before the region a read may start. 0 means unrecorded.
    static uint32_t fgMaxRefSpan;
 
-   /// Whether the records are in coordinate order: placed records ordered by
-   /// (refid, pos) and unplaced ones after them, as samtools sort writes them.
-   /// A region query can only seek to the region and stop at the first record
-   /// past it when they are; on an unsorted file it reads every record. Files
-   /// written before this field carry no answer and are read as sorted.
-   static bool fgCoordinateSorted;
-   static int32_t fgLastPlacedRefId;
-   static int32_t fgLastPlacedPos;
-   static bool fgSeenUnplaced;
+   /// Whether the records are in coordinate order. A region query can only
+   /// seek to the region and stop at the first record past it when they are;
+   /// on an unsorted file it reads every record. Files written before this
+   /// field carry no answer and are read as sorted.
+   static RAMCoordinateOrder fgOrder;
 
 public:
    RAMNTupleRecord();
@@ -181,21 +206,10 @@ public:
       if (span > fgMaxRefSpan)
          fgMaxRefSpan = span;
    }
-   static bool IsCoordinateSorted() { return fgCoordinateSorted; }
-   static void SetCoordinateSorted(bool sorted) { fgCoordinateSorted = sorted; }
-   /// Feeds one record to the running order check; refid -1 is an unplaced
-   /// record, which coordinate order puts after every placed one.
-   static void NotePlacement(int32_t refid_, int32_t pos_)
-   {
-      if (refid_ < 0) {
-         fgSeenUnplaced = true;
-         return;
-      }
-      if (fgSeenUnplaced || refid_ < fgLastPlacedRefId || (refid_ == fgLastPlacedRefId && pos_ < fgLastPlacedPos))
-         fgCoordinateSorted = false;
-      fgLastPlacedRefId = refid_;
-      fgLastPlacedPos = pos_;
-   }
+   static bool IsCoordinateSorted() { return fgOrder.sorted; }
+   static void SetCoordinateSorted(bool sorted) { fgOrder.sorted = sorted; }
+   /// Feeds one record to the running order check of the open file.
+   static void NotePlacement(int32_t refid_, int32_t pos_) { fgOrder.Note(refid_, pos_); }
    /// Reference bases covered by this record's CIGAR (0 when it has none).
    uint32_t GetRefSpan() const;
    static RAMNTupleRefs *GetRnameRefs() { return fgRnameRefs.get(); }

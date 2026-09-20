@@ -189,59 +189,45 @@ void samtoramntuple_split_by_chromosome(const char *datafile, const char *output
 
 namespace {
 
-// Per-block summary of what the order check and the longest span need.
+// Per-block summary of what the order check and the longest span need: the
+// running check over the block's records plus its first placed record, so the
+// step from the previous block can be checked when the blocks are merged.
 struct BlockOrder {
+   RAMCoordinateOrder check;
    bool has_placed = false;
    int32_t first_refid = -1;
    int32_t first_pos = -1;
-   int32_t last_refid = -1;
-   int32_t last_pos = -1;
-   bool seen_unplaced = false;
-   /// Placed records in non-decreasing order and none of them after an unplaced one.
-   bool sorted = true;
    uint32_t max_span = 0;
 
    void Note(int32_t refid, int32_t pos)
    {
-      if (refid < 0) {
-         seen_unplaced = true;
-         return;
-      }
-      if (seen_unplaced || (has_placed && (refid < last_refid || (refid == last_refid && pos < last_pos))))
-         sorted = false;
-      if (!has_placed) {
+      if (refid >= 0 && !has_placed) {
          has_placed = true;
          first_refid = refid;
          first_pos = pos;
       }
-      last_refid = refid;
-      last_pos = pos;
+      check.Note(refid, pos);
    }
 };
 
-// The same check as RAMNTupleRecord::NotePlacement, applied block by block in
-// input order.
+// The order check over the whole file, fed the blocks in input order.
 struct FileOrder {
-   bool sorted = true;
-   bool seen_unplaced = false;
-   bool has_placed = false;
-   int32_t last_refid = -1;
-   int32_t last_pos = -1;
+   RAMCoordinateOrder check;
    uint32_t max_span = 0;
 
    void Add(const BlockOrder &b)
    {
-      if (!b.sorted)
-         sorted = false;
+      if (!b.check.sorted)
+         check.sorted = false;
       if (b.has_placed) {
-         if (seen_unplaced || (has_placed && (b.first_refid < last_refid ||
-                                              (b.first_refid == last_refid && b.first_pos < last_pos))))
-            sorted = false;
-         has_placed = true;
-         last_refid = b.last_refid;
-         last_pos = b.last_pos;
+         check.Note(b.first_refid, b.first_pos);
+         check.Note(b.check.last_refid, b.check.last_pos);
       }
-      seen_unplaced = seen_unplaced || b.seen_unplaced;
+      // An unplaced record inside the block ahead of a placed one already made
+      // the block unsorted; one after its last placed record affects what
+      // follows, so it is noted after the block's own records.
+      if (b.check.seen_unplaced)
+         check.seen_unplaced = true;
       max_span = std::max(max_span, b.max_span);
    }
 };
@@ -299,8 +285,15 @@ public:
    }
 };
 
-// Blocks travel from the reader to the workers through here. The capacity
-// bounds how far the reader runs ahead, and so the memory in flight.
+// Blocks travel from the reader to the workers through here, first in first
+// out. The capacity bounds how far the reader runs ahead, and so the memory in
+// flight.
+//
+// ROOT's TTaskGroup and TThreadExecutor were considered instead of std::thread
+// and this queue: they run on TBB, which does not start tasks in submission
+// order, and a task waiting for an earlier block to be committed would then
+// block a TBB thread that might be the one meant to run that earlier block.
+// A fixed set of threads taking blocks in order cannot deadlock that way.
 class BlockQueue {
    std::mutex fMutex;
    std::condition_variable fNotEmpty;
@@ -412,17 +405,17 @@ BlockOrder ProcessBlock(Block &block, ROOT::RNTupleFillContext &ctx, ROOT::REntr
    char *const end = cursor + block.data.size();
    size_t line_number = block.first_line;
    while (cursor < end) {
+      // The reader ends every block, and so every line, with '\n'.
       char *nl = static_cast<char *>(memchr(cursor, '\n', static_cast<size_t>(end - cursor)));
-      char *line_end = nl ? nl : end;
+      if (!nl)
+         break;
       char *line = cursor;
-      cursor = nl ? nl + 1 : end;
-
-      while (line_end > line && (line_end[-1] == '\n' || line_end[-1] == '\r'))
-         --line_end;
-      *line_end = '\0';
+      cursor = nl + 1;
+      *nl = '\0';
+      ramcore::StripCRLF(line);
       const size_t this_line = line_number++;
 
-      if (line == line_end)
+      if (line[0] == '\0')
          continue;
 
       if (line[0] == '@') {
@@ -639,9 +632,9 @@ void samtoramntuple(const char *datafile, const char *treefile, int compression_
    for (const auto &[tag, content] : progress.late_headers)
       HandleHeaderLine(headers, tag, content);
 
-   RAMNTupleRecord::SetCoordinateSorted(progress.order.sorted);
+   RAMNTupleRecord::SetCoordinateSorted(progress.order.check.sorted);
    RAMNTupleRecord::NoteRefSpan(progress.order.max_span);
-   if (!progress.order.sorted)
+   if (!progress.order.check.sorted)
       fprintf(stderr, "%s is not in coordinate order; region queries will read it in full.\n", datafile);
    RAMNTupleRecord::WriteAllRefs(*rootFile);
 

@@ -18,10 +18,7 @@ using namespace ROOT;
 std::unique_ptr<RAMNTupleRefs> RAMNTupleRecord::fgRnameRefs = nullptr;
 std::unique_ptr<RAMNTupleRefs> RAMNTupleRecord::fgRnextRefs = nullptr;
 uint32_t RAMNTupleRecord::fgMaxRefSpan = 0;
-bool RAMNTupleRecord::fgCoordinateSorted = true;
-int32_t RAMNTupleRecord::fgLastPlacedRefId = -1;
-int32_t RAMNTupleRecord::fgLastPlacedPos = -1;
-bool RAMNTupleRecord::fgSeenUnplaced = false;
+RAMCoordinateOrder RAMNTupleRecord::fgOrder{};
 
 static constexpr std::array<char, 16> kCodeToSeq{'=', 'A', 'C', 'M', 'G', 'R', 'S', 'V',
                                                  'T', 'W', 'Y', 'H', 'K', 'D', 'B', 'N'};
@@ -180,10 +177,7 @@ void RAMNTupleRecord::InitializeRefs()
 {
    EnsureTables();
    fgMaxRefSpan = 0;
-   fgCoordinateSorted = true;
-   fgLastPlacedRefId = -1;
-   fgLastPlacedPos = -1;
-   fgSeenUnplaced = false;
+   fgOrder = RAMCoordinateOrder{};
 }
 
 std::unique_ptr<RNTupleReader> RAMNTupleRecord::OpenRAMFile(const std::string &filename, const std::string &ntupleName)
@@ -229,7 +223,7 @@ void RAMNTupleRecord::WriteAllRefs(TFile &file)
    *rnamePtr = fgRnameRefs->GetRefs();
    *rnextPtr = fgRnextRefs->GetRefs();
    *spanPtr = fgMaxRefSpan;
-   *sortedPtr = fgCoordinateSorted;
+   *sortedPtr = fgOrder.sorted;
    metaWriter->Fill(*metaEntry);
 }
 
@@ -260,10 +254,10 @@ void RAMNTupleRecord::ReadAllRefs(const std::string &filename)
          // Field doesn't exist
       }
 
-      fgCoordinateSorted = true;
+      fgOrder.sorted = true;
       try {
          auto sorted_view = reader->GetView<bool>("coordinate_sorted");
-         fgCoordinateSorted = sorted_view(0);
+         fgOrder.sorted = sorted_view(0);
       } catch (...) {
          // Field doesn't exist
       }
