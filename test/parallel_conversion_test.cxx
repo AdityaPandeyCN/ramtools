@@ -249,6 +249,23 @@ TEST_F(ParallelConversionTest, MalformedAndEmptyLinesAreSkippedLikeTheSequential
    EXPECT_EQ(headers->GetSize(), 6) << "the late @CO line is kept, as the sequential converter keeps it";
 }
 
+// getline() hands the sequential parser a last line without '\n'; the block
+// reader has to keep that record too.
+TEST_F(ParallelConversionTest, LastLineWithoutNewlineIsKept)
+{
+   std::string s = Header() + SortedRecords(30);
+   s.pop_back();
+   WriteSam(kSam, s);
+   samtoramntuple(kSam, kSeq, false, false, 505, 0);
+   const Dump seq = ReadBack(kSeq);
+   ASSERT_EQ(seq.lines.size(), 63U);
+
+   samtoramntuple_parallel(kSam, kPar, 505, 0, 2, kTinyBlock);
+   const Dump par = ReadBack(kPar);
+   EXPECT_EQ(par.lines, seq.lines);
+   EXPECT_TRUE(par.sorted);
+}
+
 TEST_F(ParallelConversionTest, MissingInputIsReported)
 {
    testing::internal::CaptureStdout();

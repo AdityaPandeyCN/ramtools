@@ -336,7 +336,8 @@ public:
    BlockReader(FILE *file, size_t block_bytes) : fFile(file), fBlockBytes(std::max<size_t>(block_bytes, 1)) {}
 
    /// Returns false once the input is exhausted. Every line in \p out ends in
-   /// '\n' except possibly the last line of the file.
+   /// '\n'; a last line without one gets it added, so the workers can rely on
+   /// the terminator being there.
    bool Next(std::vector<char> &out)
    {
       out.swap(fCarry);
@@ -349,7 +350,9 @@ public:
          if (n < fBlockBytes) {
             if (ferror(fFile))
                throw std::runtime_error("read error on the SAM input");
-            fEof = true;
+            // A short read from a pipe is not the end; only feof() is.
+            if (feof(fFile))
+               fEof = true;
          }
          const auto *end = out.data() + out.size();
          const auto *nl = static_cast<const char *>(memrchr(out.data(), '\n', out.size()));
@@ -360,7 +363,11 @@ public:
          }
          // No newline yet: the line is longer than a block, keep reading.
       }
-      return !out.empty();
+      if (out.empty())
+         return false;
+      if (out.back() != '\n')
+         out.push_back('\n');
+      return true;
    }
 };
 
@@ -678,8 +685,6 @@ void samtoramntuple_parallel(const char *datafile, const char *treefile, int com
             block.seq = seq++;
             block.first_line = lines + 1;
             lines += static_cast<size_t>(std::count(block.data.begin(), block.data.end(), '\n'));
-            if (!block.data.empty() && block.data.back() != '\n')
-               lines++;
             queue.Push(std::move(block));
             block = Block{};
             {
