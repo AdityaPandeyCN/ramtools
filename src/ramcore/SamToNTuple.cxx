@@ -21,6 +21,7 @@
 #include <cstring>
 #include <deque>
 #include <exception>
+#include <future>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -366,28 +367,63 @@ struct RefCache {
    }
 };
 
-// What the workers report back, merged on the main thread in block order.
+// What the workers report back, merged in block order under the mutex.
 struct Progress {
    std::mutex mutex;
    std::condition_variable next_turn;
    size_t next_seq = 0; ///< The block whose clusters may be committed next.
-   bool failed = false;
-   std::exception_ptr error;
+   bool failed = false; ///< A worker or the reader gave up; everyone stops.
    FileOrder order;
    size_t records = 0;
    /// Header lines found among the records, in input order; SamParser accepts
    /// them anywhere, so this converter does too.
    std::vector<std::pair<std::string, std::string>> late_headers;
 
-   void Fail(std::exception_ptr e)
+   void Fail()
    {
       const std::lock_guard<std::mutex> lock(mutex);
-      if (!failed) {
-         failed = true;
-         error = std::move(e);
-      }
+      failed = true;
       next_turn.notify_all();
    }
+
+   bool Failed()
+   {
+      const std::lock_guard<std::mutex> lock(mutex);
+      return failed;
+   }
+};
+
+// Runs when a worker leaves by exception: the other workers must not wait for
+// a block that will never be committed, and the reader must stop feeding them.
+// The exception itself travels to the main thread in the worker's future.
+class StopOthersOnException {
+   Progress &fProgress;
+   BlockQueue &fQueue;
+   const int fExceptions = std::uncaught_exceptions();
+
+public:
+   StopOthersOnException(Progress &progress, BlockQueue &queue) : fProgress(progress), fQueue(queue) {}
+   StopOthersOnException(const StopOthersOnException &) = delete;
+   StopOthersOnException &operator=(const StopOthersOnException &) = delete;
+   ~StopOthersOnException()
+   {
+      if (std::uncaught_exceptions() > fExceptions) {
+         fProgress.Fail();
+         fQueue.Abort();
+      }
+   }
+};
+
+// Closes the queue when the reader's scope ends, however it ends, so workers
+// blocked in Pop() return and can be joined.
+class CloseQueueOnExit {
+   BlockQueue &fQueue;
+
+public:
+   explicit CloseQueueOnExit(BlockQueue &queue) : fQueue(queue) {}
+   CloseQueueOnExit(const CloseQueueOnExit &) = delete;
+   CloseQueueOnExit &operator=(const CloseQueueOnExit &) = delete;
+   ~CloseQueueOnExit() { fQueue.Abort(); }
 };
 
 // Encodes the records of one block into the worker's fill context and returns
@@ -448,37 +484,34 @@ BlockOrder ProcessBlock(Block &block, ROOT::RNTupleFillContext &ctx, ROOT::REntr
 void WorkerMain(BlockQueue &queue, Progress &progress, std::shared_ptr<ROOT::RNTupleFillContext> ctx,
                 uint32_t quality_policy)
 {
-   try {
-      auto entry = ctx->CreateEntry();
-      auto rec = entry->GetPtr<RAMNTupleRecord>("record");
-      RefCache rname_cache;
-      RefCache rnext_cache;
-      ramcore::SamRecord sam_record;
+   const StopOthersOnException guard(progress, queue);
 
-      Block block;
-      while (queue.Pop(block)) {
-         size_t records = 0;
-         std::vector<std::pair<std::string, std::string>> late_headers;
-         const BlockOrder order = ProcessBlock(block, *ctx, *entry, *rec, quality_policy, rname_cache, rnext_cache,
-                                               sam_record, records, late_headers);
-         // Writes the block's pages to the file and stages the cluster; the
-         // logical append below is what has to wait for its turn.
-         ctx->FlushCluster();
+   auto entry = ctx->CreateEntry();
+   auto rec = entry->GetPtr<RAMNTupleRecord>("record");
+   RefCache rname_cache;
+   RefCache rnext_cache;
+   ramcore::SamRecord sam_record;
 
-         std::unique_lock<std::mutex> lock(progress.mutex);
-         progress.next_turn.wait(lock, [&] { return progress.next_seq == block.seq || progress.failed; });
-         if (progress.failed)
-            return;
-         ctx->CommitStagedClusters();
-         progress.order.Add(order);
-         progress.records += records;
-         progress.late_headers.insert(progress.late_headers.end(), late_headers.begin(), late_headers.end());
-         progress.next_seq++;
-         progress.next_turn.notify_all();
-      }
-   } catch (...) {
-      progress.Fail(std::current_exception());
-      queue.Abort();
+   Block block;
+   while (queue.Pop(block)) {
+      size_t records = 0;
+      std::vector<std::pair<std::string, std::string>> late_headers;
+      const BlockOrder order = ProcessBlock(block, *ctx, *entry, *rec, quality_policy, rname_cache, rnext_cache,
+                                            sam_record, records, late_headers);
+      // Writes the block's pages to the file and stages the cluster; the
+      // logical append below is what has to wait for its turn.
+      ctx->FlushCluster();
+
+      std::unique_lock<std::mutex> lock(progress.mutex);
+      progress.next_turn.wait(lock, [&] { return progress.next_seq == block.seq || progress.failed; });
+      if (progress.failed)
+         return;
+      ctx->CommitStagedClusters();
+      progress.order.Add(order);
+      progress.records += records;
+      progress.late_headers.insert(progress.late_headers.end(), late_headers.begin(), late_headers.end());
+      progress.next_seq++;
+      progress.next_turn.notify_all();
    }
 }
 
@@ -590,13 +623,20 @@ void samtoramntuple(const char *datafile, const char *treefile, int compression_
       // One block per worker in flight plus one per worker queued bounds the
       // memory at about 2 * threads * block_bytes.
       BlockQueue queue(static_cast<size_t>(threads));
+      // Declaration order is destruction order in reverse, and that order is
+      // what makes an exception anywhere in this scope safe: the queue is
+      // closed first, so the workers return; the futures then join them (a
+      // future from std::async blocks in its destructor); only then go the
+      // contexts, and last the writer, which requires the contexts gone.
       std::vector<std::shared_ptr<ROOT::RNTupleFillContext>> contexts;
-      std::vector<std::thread> workers;
+      std::vector<std::future<void>> workers;
+      const CloseQueueOnExit closer(queue);
       for (int i = 0; i < threads; i++) {
          auto ctx = writer->CreateFillContext();
          ctx->EnableStagedClusterCommitting();
          contexts.push_back(ctx);
-         workers.emplace_back(WorkerMain, std::ref(queue), std::ref(progress), ctx, quality_policy);
+         workers.push_back(
+            std::async(std::launch::async, WorkerMain, std::ref(queue), std::ref(progress), ctx, quality_policy));
       }
 
       if (have_records) {
@@ -608,24 +648,15 @@ void samtoramntuple(const char *datafile, const char *treefile, int compression_
             lines += static_cast<size_t>(std::count(block.data.begin(), block.data.end(), '\n'));
             queue.Push(std::move(block));
             block = Block{};
-            {
-               const std::lock_guard<std::mutex> lock(progress.mutex);
-               if (progress.failed)
-                  break;
-            }
-         } while (reader.Next(block.data));
+         } while (!progress.Failed() && reader.Next(block.data));
       }
       queue.Close();
+      // get() joins a worker and rethrows what it threw, if anything.
       for (auto &w : workers)
-         w.join();
+         w.get();
 
       // Every context has to be gone before the writer commits the dataset.
       contexts.clear();
-      if (progress.failed) {
-         writer.reset();
-         rootFile->Close();
-         std::rethrow_exception(progress.error);
-      }
       writer.reset();
    }
 

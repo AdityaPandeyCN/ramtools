@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 #include "ramcore/RAMNTupleView.h"
@@ -264,6 +265,16 @@ TEST_F(ParallelConversionTest, LastLineWithoutNewlineIsKept)
    const Dump par = ReadBack(kPar);
    EXPECT_EQ(par.lines, seq.lines);
    EXPECT_TRUE(par.sorted);
+}
+
+// A directory opens but cannot be read. The error has to reach the caller as
+// an exception, with the workers joined on the way out instead of terminating
+// the program.
+TEST_F(ParallelConversionTest, ReadErrorIsThrownAfterTheWorkersAreStopped)
+{
+   testing::internal::CaptureStdout();
+   EXPECT_THROW(samtoramntuple(".", kPar, 505, 0, 3, kTinyBlock), std::runtime_error);
+   testing::internal::GetCapturedStdout();
 }
 
 TEST_F(ParallelConversionTest, MissingInputIsReported)
