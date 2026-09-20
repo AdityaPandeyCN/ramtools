@@ -134,7 +134,6 @@ void RAMNTupleRefs::AddRef(const std::string &ref)
 {
    const std::lock_guard<std::mutex> lock(fMutex);
    fRefVec.push_back(ref);
-   // A duplicate keeps its first id, as GetRefId would have given it.
    fIndex.emplace(ref, static_cast<int>(fRefVec.size() - 1));
 }
 
@@ -402,8 +401,6 @@ std::unique_ptr<RNTupleModel> RAMNTupleRecord::MakeModel()
 
 namespace RAMNTupleUtils {
 
-// The lookup tables are built once, on first use. A function-local static makes
-// that initialisation thread-safe, which the parallel converter relies on.
 void InitializeTables()
 {
    static const bool initialised = [] {

@@ -1,6 +1,4 @@
-// Converting in many small blocks on several threads has to give the same
-// records, in the same order, as one thread with one block, and the order check
-// has to see across block boundaries.
+// Many small blocks on several threads must equal one block on one thread.
 #include <gtest/gtest.h>
 #include <ROOT/RNTupleReader.hxx>
 #include <ROOT/RNTupleView.hxx>
@@ -18,7 +16,6 @@
 
 namespace {
 
-// Small blocks, so that even a few hundred records span many blocks.
 constexpr size_t kTinyBlock = 700;
 
 std::string Header(const char *order = "coordinate")
@@ -42,8 +39,6 @@ std::string Record(int n, const char *rname, int flag, int pos, const char *rnex
    return r;
 }
 
-// A sorted file: two references, mates on the other reference, a placed
-// unmapped read, an empty reference and unplaced records at the end.
 std::string SortedRecords(int per_ref)
 {
    std::string s{};
@@ -71,7 +66,6 @@ struct Dump {
    std::vector<std::string> rname_refs;
 };
 
-// Every record as SAM text plus the metadata, read through the public API.
 Dump ReadBack(const char *file)
 {
    Dump d;
@@ -127,8 +121,6 @@ TEST_F(ParallelConversionTest, ManyBlocksOnSeveralThreadsMatchOneBlockRecordForR
    EXPECT_EQ(par.max_span, 50U);
    EXPECT_EQ(par.rname_refs, seq.rname_refs) << "reference ids follow the header in both";
 
-   // Many blocks, so the order check crossed many boundaries, and region
-   // queries seek in the result as they do in the one-block file.
    auto reader = ROOT::RNTupleReader::Open("RAM", kPar);
    EXPECT_GT(reader->GetDescriptor().GetNClusters(), 20U);
    const RAMNTupleViewOpts opts = {true, false, ""};
@@ -154,8 +146,7 @@ TEST_F(ParallelConversionTest, OneThreadAndOneBlockGiveOneCluster)
    EXPECT_EQ(reader->GetDescriptor().GetNClusters(), 1U);
 }
 
-// Each block on its own is in order; only the step from one block to the next
-// goes backwards, so a per-block check alone would call the file sorted.
+// Each block is sorted on its own; only the step between blocks goes back.
 TEST_F(ParallelConversionTest, DisorderAcrossABlockBoundaryMarksTheFileUnsorted)
 {
    std::string s = Header("unsorted");
@@ -175,7 +166,6 @@ TEST_F(ParallelConversionTest, DisorderAcrossABlockBoundaryMarksTheFileUnsorted)
    ASSERT_EQ(par.lines.size(), 24U);
    EXPECT_EQ(par.lines.front().substr(0, 3), "r0\t");
    EXPECT_EQ(par.lines.back().substr(0, 4), "r23\t");
-   // An unsorted file is read in full, so every record is still found.
    const RAMNTupleViewOpts opts = {true, false, ""};
    EXPECT_EQ(ramntupleview(kPar, "chr1:1000-1200", opts), 12);
 }
@@ -251,7 +241,6 @@ TEST_F(ParallelConversionTest, MalformedAndEmptyLinesAreSkippedInEveryBlock)
    EXPECT_EQ(headers->GetSize(), 6) << "the late @CO line is kept";
 }
 
-// A last line without '\n' is still a record.
 TEST_F(ParallelConversionTest, LastLineWithoutNewlineIsKept)
 {
    std::string s = Header() + SortedRecords(30);
@@ -267,9 +256,7 @@ TEST_F(ParallelConversionTest, LastLineWithoutNewlineIsKept)
    EXPECT_TRUE(par.sorted);
 }
 
-// A directory opens but cannot be read. The error has to reach the caller as
-// an exception, with the workers joined on the way out instead of terminating
-// the program.
+// A directory opens but fails on read.
 TEST_F(ParallelConversionTest, ReadErrorIsThrownAfterTheWorkersAreStopped)
 {
    testing::internal::CaptureStdout();

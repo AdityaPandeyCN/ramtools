@@ -100,9 +100,7 @@ int main(int argc, char* argv[]) {
        std::cerr << "-threads needs a value\n";
        return 1;
     }
-    // Split mode still has one writer per chromosome fed by one parser, so it
-    // uses the threads for page compression only. The single-file conversion
-    // parses and compresses on every thread.
+    // Split mode has one parser; its threads compress pages only.
     if (threads > 1 && do_split)
        ROOT::EnableImplicitMT(threads);
 

@@ -31,10 +31,7 @@ class RAMNTupleRefs;
 class RAMNTupleRefs {
 private:
    std::vector<std::string> fRefVec;
-   /// Name -> id, so a lookup does not scan the vector.
    std::unordered_map<std::string, int> fIndex;
-   /// Guards fRefVec and fIndex: the parallel converter looks names up from
-   /// several threads at once and inserts the ones it has not seen.
    mutable std::mutex fMutex;
 
    void Rebuild();
@@ -45,13 +42,11 @@ public:
    RAMNTupleRefs(const RAMNTupleRefs &) = delete;
    RAMNTupleRefs &operator=(const RAMNTupleRefs &) = delete;
 
-   /// Returns the id of \p rname, adding it to the table if it is new. Safe to
-   /// call from several threads at once.
+   /// Returns the id of \p rname, adding it if new. Thread-safe.
    int GetRefId(const std::string &rname);
-   /// Lookup-only; returns -1 if not found. Safe to call from several threads.
+   /// Lookup-only; returns -1 if not found. Thread-safe.
    int FindRefId(const std::string &rname) const;
-   /// The returned reference stays valid as long as nothing is inserted, so it
-   /// must not be used while another thread may call GetRefId().
+   /// The reference is invalidated by a concurrent GetRefId().
    const std::string &GetRefName(int rid) const;
 
    void Print() const;
@@ -64,16 +59,8 @@ public:
    void SetRefs(const std::vector<std::string> &refs);
 };
 
-/**
- * \struct RAMCoordinateOrder
- * \brief Running check of coordinate order.
- *
- * Coordinate order means placed records ordered by (refid, pos) and unplaced
- * ones (refid -1) after every placed one, as samtools sort writes them. Feed
- * the records in file order to Note(); `sorted` stays true as long as they
- * comply. RAMNTupleRecord keeps one for the open file; the converter keeps one
- * per input block and one for the whole file.
- */
+/// Running check of coordinate order: placed records ordered by (refid, pos),
+/// unplaced ones (refid -1) after them.
 struct RAMCoordinateOrder {
    int32_t last_refid = -1;
    int32_t last_pos = -1;
@@ -139,10 +126,8 @@ public:
    /// knows how far before the region a read may start. 0 means unrecorded.
    static uint32_t fgMaxRefSpan;
 
-   /// Whether the records are in coordinate order. A region query can only
-   /// seek to the region and stop at the first record past it when they are;
-   /// on an unsorted file it reads every record. Files written before this
-   /// field carry no answer and are read as sorted.
+   /// Order of the open file; region queries seek only when sorted. Files
+   /// without the field are read as sorted.
    static RAMCoordinateOrder fgOrder;
 
 public:
@@ -208,7 +193,6 @@ public:
    }
    static bool IsCoordinateSorted() { return fgOrder.sorted; }
    static void SetCoordinateSorted(bool sorted) { fgOrder.sorted = sorted; }
-   /// Feeds one record to the running order check of the open file.
    static void NotePlacement(int32_t refid_, int32_t pos_) { fgOrder.Note(refid_, pos_); }
    /// Reference bases covered by this record's CIGAR (0 when it has none).
    uint32_t GetRefSpan() const;

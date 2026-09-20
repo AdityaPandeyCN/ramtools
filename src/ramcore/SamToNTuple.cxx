@@ -33,8 +33,6 @@
 
 namespace {
 
-// Adds one header line to the list and registers the reference of an @SQ line,
-// so that reference ids follow header order.
 void HandleHeaderLine(TList &headers, const std::string &tag, const std::string &content)
 {
    headers.Add(new TNamed(tag.c_str(), content.c_str()));
@@ -51,9 +49,7 @@ void HandleHeaderLine(TList &headers, const std::string &tag, const std::string 
    }
 }
 
-// Copies every field of a parsed SAM record into the RAM record except the two
-// reference ids, which the caller resolves (the single-file converter caches
-// them per thread).
+// Everything but the two reference ids, which the caller resolves.
 void FillRecordFields(const ramcore::SamRecord &sam_record, RAMNTupleRecord &rec, uint32_t quality_policy)
 {
    rec.SetBit(quality_policy);
@@ -177,22 +173,12 @@ void samtoramntuple_split_by_chromosome(const char *datafile, const char *output
    }
 }
 
-// ---------------------------------------------------------------------------
-// Single-file conversion
-//
-// The main thread cuts the input into blocks of whole lines and hands them to
-// worker threads through a bounded queue. Every worker owns an RNTupleFillContext
-// of a shared RNTupleParallelWriter, so it parses, encodes and compresses its
-// blocks without touching the other workers. The fill contexts stage their
-// clusters instead of committing them; a worker commits the staged clusters of
-// block n only once block n-1 has been committed, so the clusters, and with them
-// the records, come out in input order.
+// Single-file conversion: the main thread reads blocks of whole lines, worker
+// threads fill them into their own RNTupleFillContext and commit the staged
+// clusters in block order.
 
 namespace {
 
-// Per-block summary of what the order check and the longest span need: the
-// running check over the block's records plus its first placed record, so the
-// step from the previous block can be checked when the blocks are merged.
 struct BlockOrder {
    RAMCoordinateOrder check;
    bool has_placed = false;
@@ -211,7 +197,6 @@ struct BlockOrder {
    }
 };
 
-// The order check over the whole file, fed the blocks in input order.
 struct FileOrder {
    RAMCoordinateOrder check;
    uint32_t max_span = 0;
@@ -224,9 +209,6 @@ struct FileOrder {
          check.Note(b.first_refid, b.first_pos);
          check.Note(b.check.last_refid, b.check.last_pos);
       }
-      // An unplaced record inside the block ahead of a placed one already made
-      // the block unsorted; one after its last placed record affects what
-      // follows, so it is noted after the block's own records.
       if (b.check.seen_unplaced)
          check.seen_unplaced = true;
       max_span = std::max(max_span, b.max_span);
@@ -239,8 +221,7 @@ struct Block {
    std::vector<char> data;
 };
 
-// Reads the input in blocks of whole lines. A line longer than a block is read
-// in full by growing the block.
+// Reads blocks of whole lines; every block ends with '\n'.
 class BlockReader {
    FILE *fFile;
    size_t fBlockBytes;
@@ -250,9 +231,6 @@ class BlockReader {
 public:
    BlockReader(FILE *file, size_t block_bytes) : fFile(file), fBlockBytes(std::max<size_t>(block_bytes, 1)) {}
 
-   /// Returns false once the input is exhausted. Every line in \p out ends in
-   /// '\n'; a last line without one gets it added, so the workers can rely on
-   /// the terminator being there.
    bool Next(std::vector<char> &out)
    {
       out.swap(fCarry);
@@ -265,7 +243,7 @@ public:
          if (n < fBlockBytes) {
             if (ferror(fFile))
                throw std::runtime_error("read error on the SAM input");
-            // A short read from a pipe is not the end; only feof() is.
+            // A short read from a pipe is not the end.
             if (feof(fFile))
                fEof = true;
          }
@@ -276,7 +254,6 @@ public:
             out.resize(static_cast<size_t>(nl + 1 - out.data()));
             return true;
          }
-         // No newline yet: the line is longer than a block, keep reading.
       }
       if (out.empty())
          return false;
@@ -286,15 +263,8 @@ public:
    }
 };
 
-// Blocks travel from the reader to the workers through here, first in first
-// out. The capacity bounds how far the reader runs ahead, and so the memory in
-// flight.
-//
-// ROOT's TTaskGroup and TThreadExecutor were considered instead of std::thread
-// and this queue: they run on TBB, which does not start tasks in submission
-// order, and a task waiting for an earlier block to be committed would then
-// block a TBB thread that might be the one meant to run that earlier block.
-// A fixed set of threads taking blocks in order cannot deadlock that way.
+// Bounded FIFO. Not TBB (TTaskGroup, TThreadExecutor): it does not start tasks
+// in order, and a task waiting for an earlier block could then deadlock.
 class BlockQueue {
    std::mutex fMutex;
    std::condition_variable fNotEmpty;
@@ -316,7 +286,6 @@ public:
       fNotEmpty.notify_one();
    }
 
-   /// Returns false when the queue is closed and drained.
    bool Pop(Block &block)
    {
       std::unique_lock<std::mutex> lock(fMutex);
@@ -329,7 +298,6 @@ public:
       return true;
    }
 
-   /// Wakes everyone; Push() drops its block and Pop() returns false once drained.
    void Close()
    {
       const std::lock_guard<std::mutex> lock(fMutex);
@@ -338,7 +306,6 @@ public:
       fNotFull.notify_all();
    }
 
-   /// Close() and drop what is queued, for shutting down after an error.
    void Abort()
    {
       const std::lock_guard<std::mutex> lock(fMutex);
@@ -349,8 +316,6 @@ public:
    }
 };
 
-// Remembers the last name looked up, so a sorted file resolves its reference
-// almost always without taking the table's lock.
 struct RefCache {
    std::string name;
    int id = -1;
@@ -367,7 +332,6 @@ struct RefCache {
    }
 };
 
-// What the workers report back, merged in block order under the mutex.
 struct Progress {
    std::mutex mutex;
    std::condition_variable next_turn;
@@ -375,8 +339,6 @@ struct Progress {
    bool failed = false; ///< A worker or the reader gave up; everyone stops.
    FileOrder order;
    size_t records = 0;
-   /// Header lines found among the records, in input order; SamParser accepts
-   /// them anywhere, so this converter does too.
    std::vector<std::pair<std::string, std::string>> late_headers;
 
    void Fail()
@@ -393,9 +355,8 @@ struct Progress {
    }
 };
 
-// Runs when a worker leaves by exception: the other workers must not wait for
-// a block that will never be committed, and the reader must stop feeding them.
-// The exception itself travels to the main thread in the worker's future.
+// A worker leaving by exception stops the others; the exception itself
+// travels in the worker's future.
 class StopOthersOnException {
    Progress &fProgress;
    BlockQueue &fQueue;
@@ -414,8 +375,6 @@ public:
    }
 };
 
-// Closes the queue when the reader's scope ends, however it ends, so workers
-// blocked in Pop() return and can be joined.
 class CloseQueueOnExit {
    BlockQueue &fQueue;
 
@@ -426,8 +385,6 @@ public:
    ~CloseQueueOnExit() { fQueue.Abort(); }
 };
 
-// Encodes the records of one block into the worker's fill context and returns
-// the block's order summary.
 BlockOrder ProcessBlock(Block &block, ROOT::RNTupleFillContext &ctx, ROOT::REntry &entry, RAMNTupleRecord &rec,
                         uint32_t quality_policy, RefCache &rname_cache, RefCache &rnext_cache,
                         ramcore::SamRecord &sam_record, size_t &records,
@@ -441,7 +398,6 @@ BlockOrder ProcessBlock(Block &block, ROOT::RNTupleFillContext &ctx, ROOT::REntr
    char *const end = cursor + block.data.size();
    size_t line_number = block.first_line;
    while (cursor < end) {
-      // The reader ends every block, and so every line, with '\n'.
       char *nl = static_cast<char *>(memchr(cursor, '\n', static_cast<size_t>(end - cursor)));
       if (!nl)
          break;
@@ -498,8 +454,6 @@ void WorkerMain(BlockQueue &queue, Progress &progress, std::shared_ptr<ROOT::RNT
       std::vector<std::pair<std::string, std::string>> late_headers;
       const BlockOrder order = ProcessBlock(block, *ctx, *entry, *rec, quality_policy, rname_cache, rnext_cache,
                                             sam_record, records, late_headers);
-      // Writes the block's pages to the file and stages the cluster; the
-      // logical append below is what has to wait for its turn.
       ctx->FlushCluster();
 
       std::unique_lock<std::mutex> lock(progress.mutex);
@@ -515,8 +469,7 @@ void WorkerMain(BlockQueue &queue, Progress &progress, std::shared_ptr<ROOT::RNT
    }
 }
 
-// Consumes the header lines at the front of \p data, returning the offset of
-// the first record line or npos when the whole block is header.
+// Returns the offset of the first record line, npos if the block is all header.
 size_t ConsumeHeader(std::vector<char> &data, TList &headers, size_t &lines)
 {
    size_t offset = 0;
@@ -527,7 +480,6 @@ size_t ConsumeHeader(std::vector<char> &data, TList &headers, size_t &lines)
       while (line_end > offset && (data[line_end - 1] == '\r' || data[line_end - 1] == '\n'))
          --line_end;
       if (line_end == offset) {
-         // Empty line: skipped, as SamParser::ParseFile skips it.
          offset = next;
          lines++;
          continue;
@@ -568,16 +520,12 @@ void samtoramntuple(const char *datafile, const char *treefile, int compression_
       return;
    }
 
-   // The workers construct records, look reference names up and stream through
-   // ROOT's type system at the same time.
    ROOT::EnableThreadSafety();
    RAMNTupleRecord::InitializeRefs();
 
    TList headers;
    headers.SetName("headers");
 
-   // The header comes first, so it is read here before any worker starts: the
-   // @SQ lines define the reference ids.
    BlockReader reader(input.get(), block_bytes);
    size_t lines = 0;
    Block first;
@@ -596,9 +544,7 @@ void samtoramntuple(const char *datafile, const char *treefile, int compression_
       }
    }
 
-   // RNEXT ids in header order rather than in order of first appearance, which
-   // would depend on which worker gets there first. "=" is the common case and
-   // gets id 0.
+   // RNEXT ids in header order, so they do not depend on worker timing.
    {
       RAMNTupleRefs &rnext = *RAMNTupleRecord::GetRnextRefs();
       rnext.GetRefId("=");
@@ -612,22 +558,16 @@ void samtoramntuple(const char *datafile, const char *treefile, int compression_
    ROOT::RNTupleWriteOptions writeOptions;
    writeOptions.SetCompression(compression_algorithm);
    writeOptions.SetMaxUnzippedPageSize(64000);
-   // The parallel writer needs buffered writing (the default); said explicitly
-   // because it is a requirement, not a tuning choice.
+   // Required by RNTupleParallelWriter.
    writeOptions.SetUseBufferedWrite(true);
 
    Progress progress;
    {
       auto writer = ROOT::RNTupleParallelWriter::Append(std::move(model), "RAM", *rootFile, writeOptions);
 
-      // One block per worker in flight plus one per worker queued bounds the
-      // memory at about 2 * threads * block_bytes.
       BlockQueue queue(static_cast<size_t>(threads));
-      // Declaration order is destruction order in reverse, and that order is
-      // what makes an exception anywhere in this scope safe: the queue is
-      // closed first, so the workers return; the futures then join them (a
-      // future from std::async blocks in its destructor); only then go the
-      // contexts, and last the writer, which requires the contexts gone.
+      // Destruction order on an exception: close the queue, join the futures,
+      // drop the contexts, then the writer.
       std::vector<std::shared_ptr<ROOT::RNTupleFillContext>> contexts;
       std::vector<std::future<void>> workers;
       const CloseQueueOnExit closer(queue);
@@ -651,11 +591,9 @@ void samtoramntuple(const char *datafile, const char *treefile, int compression_
          } while (!progress.Failed() && reader.Next(block.data));
       }
       queue.Close();
-      // get() joins a worker and rethrows what it threw, if anything.
       for (auto &w : workers)
          w.get();
 
-      // Every context has to be gone before the writer commits the dataset.
       contexts.clear();
       writer.reset();
    }
