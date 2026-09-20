@@ -212,7 +212,7 @@ TEST_F(BamToNTupleTest, SameEntryCountAsSAMPath)
 {
    bamtoramntuple("test.bam", "test_bam.ram", false, true, 505, 0U);
 
-   samtoramntuple("test_compare.sam", "test_sam.ram", true, true, 505, 0U);
+   samtoramntuple("test_compare.sam", "test_sam.ram", 505, 0U);
 
    auto bamReader = ROOT::RNTupleReader::Open("RAM", "test_bam.ram");
    auto samReader = ROOT::RNTupleReader::Open("RAM", "test_sam.ram");

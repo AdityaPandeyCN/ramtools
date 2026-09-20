@@ -124,10 +124,7 @@ int main(int argc, char* argv[]) {
           if (ramfile.find(".root") == std::string::npos && ramfile.find(".ram") == std::string::npos) {
              ramfile += ".ram";
           }
-          if (threads > 1)
-             samtoramntuple_parallel(input, ramfile.c_str(), compression, quality_mode, threads);
-          else
-             samtoramntuple(input, ramfile.c_str(), true, true, compression, quality_mode);
+          samtoramntuple(input, ramfile.c_str(), compression, quality_mode, threads);
        }
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;

@@ -51,8 +51,8 @@ void HandleHeaderLine(TList &headers, const std::string &tag, const std::string 
 }
 
 // Copies every field of a parsed SAM record into the RAM record except the two
-// reference ids, which the caller resolves (the parallel converter caches them
-// per thread).
+// reference ids, which the caller resolves (the single-file converter caches
+// them per thread).
 void FillRecordFields(const ramcore::SamRecord &sam_record, RAMNTupleRecord &rec, uint32_t quality_policy)
 {
    rec.SetBit(quality_policy);
@@ -72,78 +72,6 @@ void FillRecordFields(const ramcore::SamRecord &sam_record, RAMNTupleRecord &rec
 }
 
 } // namespace
-
-void samtoramntuple(const char *datafile, const char *treefile, bool split, bool cache, int compression_algorithm,
-                    uint32_t quality_policy)
-{
-    TStopwatch stopwatch;
-    stopwatch.Start();
-
-    auto rootFile = std::unique_ptr<TFile>(TFile::Open(treefile, "RECREATE"));
-    if (!rootFile || !rootFile->IsOpen()) {
-        printf("Failed to create RAM file %s\n", treefile);
-        return;
-    }
-
-    RAMNTupleRecord::InitializeRefs();
-
-    auto model = RAMNTupleRecord::MakeModel();
-
-    ROOT::RNTupleWriteOptions writeOptions;
-    writeOptions.SetCompression(compression_algorithm);
-    writeOptions.SetMaxUnzippedPageSize(64000);
-
-    auto writer = ROOT::RNTupleWriter::Append(std::move(model), "RAM", *rootFile, writeOptions);
-    auto defaultEntry = writer->GetModel().CreateEntry();
-    auto recordPtr = defaultEntry->GetPtr<RAMNTupleRecord>("record");
-
-    TList headers;
-    headers.SetName("headers");
-
-    ramcore::SamParser parser;
-
-    auto header_callback = [&headers](const std::string &tag, const std::string &content) {
-       HandleHeaderLine(headers, tag, content);
-    };
-
-    auto record_callback = [&](const ramcore::SamRecord &sam_record, size_t) {
-       FillRecordFields(sam_record, *recordPtr, quality_policy);
-       recordPtr->SetREFID(sam_record.rname);
-       recordPtr->SetREFNEXT(sam_record.rnext);
-
-       RAMNTupleRecord::NoteRefSpan(recordPtr->GetRefSpan());
-       RAMNTupleRecord::NotePlacement(recordPtr->GetREFID(), recordPtr->GetPOS() - 1);
-       writer->Fill(*defaultEntry);
-    };
-
-    if (!parser.ParseFile(datafile, header_callback, record_callback)) {
-        printf("Failed to parse SAM file %s\n", datafile);
-        return;
-    }
-
-    writer.reset();
-
-    // Region queries can only seek on a sorted file; the file records which it is.
-    if (!RAMNTupleRecord::IsCoordinateSorted())
-       fprintf(stderr, "%s is not in coordinate order; region queries will read it in full.\n", datafile);
-    RAMNTupleRecord::WriteAllRefs(*rootFile);
-
-    // One key for the list; without kSingleKey every line is written as its own
-    // key and no reader can get the header back in order.
-    headers.Write("headers", TObject::kSingleKey);
-    rootFile->Close();
-
-    printf("\nRAM file created: %s\n", treefile);
-    printf("Number of entries: %zu\n", parser.GetRecordsProcessed());
-
-    RAMNTupleRecord::GetRnameRefs()->Print();
-    RAMNTupleRecord::GetRnextRefs()->Print();
-
-    printf("\nProcessed %zu SAM headers\n", parser.GetLinesProcessed() - parser.GetRecordsProcessed());
-    printf("Processed %zu SAM records\n\n", parser.GetRecordsProcessed());
-
-    stopwatch.Print();
-}
 
 namespace {
 
@@ -249,7 +177,7 @@ void samtoramntuple_split_by_chromosome(const char *datafile, const char *output
 }
 
 // ---------------------------------------------------------------------------
-// Parallel conversion
+// Single-file conversion
 //
 // The main thread cuts the input into blocks of whole lines and hands them to
 // worker threads through a bounded queue. Every worker owns an RNTupleFillContext
@@ -454,8 +382,8 @@ struct Progress {
    std::exception_ptr error;
    FileOrder order;
    size_t records = 0;
-   /// Header lines found among the records, in input order; the sequential
-   /// converter accepts them anywhere, so this one does too.
+   /// Header lines found among the records, in input order; SamParser accepts
+   /// them anywhere, so this converter does too.
    std::vector<std::pair<std::string, std::string>> late_headers;
 
    void Fail(std::exception_ptr e)
@@ -573,7 +501,7 @@ size_t ConsumeHeader(std::vector<char> &data, TList &headers, size_t &lines)
       while (line_end > offset && (data[line_end - 1] == '\r' || data[line_end - 1] == '\n'))
          --line_end;
       if (line_end == offset) {
-         // Empty line: skipped, as the sequential parser skips it.
+         // Empty line: skipped, as SamParser::ParseFile skips it.
          offset = next;
          lines++;
          continue;
@@ -594,8 +522,8 @@ size_t ConsumeHeader(std::vector<char> &data, TList &headers, size_t &lines)
 
 } // namespace
 
-void samtoramntuple_parallel(const char *datafile, const char *treefile, int compression_algorithm,
-                             uint32_t quality_policy, int threads, size_t block_bytes)
+void samtoramntuple(const char *datafile, const char *treefile, int compression_algorithm, uint32_t quality_policy,
+                    int threads, size_t block_bytes)
 {
    TStopwatch stopwatch;
    stopwatch.Start();
@@ -644,7 +572,7 @@ void samtoramntuple_parallel(const char *datafile, const char *treefile, int com
 
    // RNEXT ids in header order rather than in order of first appearance, which
    // would depend on which worker gets there first. "=" is the common case and
-   // keeps id 0, as in the sequential converter.
+   // gets id 0.
    {
       RAMNTupleRefs &rnext = *RAMNTupleRecord::GetRnextRefs();
       rnext.GetRefId("=");

@@ -1,5 +1,6 @@
-// The parallel converter has to write the same records, in the same order, as
-// the sequential one, and its order check has to see across block boundaries.
+// Converting in many small blocks on several threads has to give the same
+// records, in the same order, as one thread with one block, and the order check
+// has to see across block boundaries.
 #include <gtest/gtest.h>
 #include <ROOT/RNTupleReader.hxx>
 #include <ROOT/RNTupleView.hxx>
@@ -108,17 +109,17 @@ protected:
    }
 };
 
-TEST_F(ParallelConversionTest, MatchesTheSequentialConverterRecordForRecord)
+TEST_F(ParallelConversionTest, ManyBlocksOnSeveralThreadsMatchOneBlockRecordForRecord)
 {
    WriteSam(kSam, Header() + SortedRecords(300));
-   samtoramntuple(kSam, kSeq, false, false, 505, 0);
+   samtoramntuple(kSam, kSeq, 505, 0);
    const Dump seq = ReadBack(kSeq);
 
-   samtoramntuple_parallel(kSam, kPar, 505, 0, 3, kTinyBlock);
+   samtoramntuple(kSam, kPar, 505, 0, 3, kTinyBlock);
    const Dump par = ReadBack(kPar);
 
    ASSERT_EQ(par.lines.size(), 603U);
-   EXPECT_EQ(par.lines, seq.lines) << "same records in the same order";
+   EXPECT_EQ(par.lines, seq.lines) << "same records in the same order as with one block";
    EXPECT_TRUE(par.sorted);
    EXPECT_EQ(par.sorted, seq.sorted);
    EXPECT_EQ(par.max_span, seq.max_span);
@@ -126,7 +127,7 @@ TEST_F(ParallelConversionTest, MatchesTheSequentialConverterRecordForRecord)
    EXPECT_EQ(par.rname_refs, seq.rname_refs) << "reference ids follow the header in both";
 
    // Many blocks, so the order check crossed many boundaries, and region
-   // queries seek in the result as they do in the sequential file.
+   // queries seek in the result as they do in the one-block file.
    auto reader = ROOT::RNTupleReader::Open("RAM", kPar);
    EXPECT_GT(reader->GetDescriptor().GetNClusters(), 20U);
    const RAMNTupleViewOpts opts = {true, false, ""};
@@ -137,13 +138,13 @@ TEST_F(ParallelConversionTest, MatchesTheSequentialConverterRecordForRecord)
    EXPECT_EQ(ramntupleview(kPar, "chr3", opts), 0);
 }
 
-TEST_F(ParallelConversionTest, OneThreadAndABlockLargerThanTheFileAlsoWork)
+TEST_F(ParallelConversionTest, OneThreadAndOneBlockGiveOneCluster)
 {
    WriteSam(kSam, Header() + SortedRecords(40));
-   samtoramntuple(kSam, kSeq, false, false, 505, 0);
+   samtoramntuple(kSam, kSeq, 505, 0);
    const Dump seq = ReadBack(kSeq);
 
-   samtoramntuple_parallel(kSam, kPar, 505, 0, 1);
+   samtoramntuple(kSam, kPar, 505, 0, 1);
    const Dump par = ReadBack(kPar);
    EXPECT_EQ(par.lines, seq.lines);
    EXPECT_TRUE(par.sorted);
@@ -165,7 +166,7 @@ TEST_F(ParallelConversionTest, DisorderAcrossABlockBoundaryMarksTheFileUnsorted)
    WriteSam(kSam, s);
 
    testing::internal::CaptureStderr();
-   samtoramntuple_parallel(kSam, kPar, 505, 0, 2, kTinyBlock);
+   samtoramntuple(kSam, kPar, 505, 0, 2, kTinyBlock);
    EXPECT_NE(testing::internal::GetCapturedStderr().find("not in coordinate order"), std::string::npos);
 
    const Dump par = ReadBack(kPar);
@@ -189,7 +190,7 @@ TEST_F(ParallelConversionTest, UnplacedRecordsBeforePlacedOnesInALaterBlockMeanU
    WriteSam(kSam, s);
 
    testing::internal::CaptureStderr();
-   samtoramntuple_parallel(kSam, kPar, 505, 0, 2, kTinyBlock);
+   samtoramntuple(kSam, kPar, 505, 0, 2, kTinyBlock);
    testing::internal::GetCapturedStderr();
 
    const Dump par = ReadBack(kPar);
@@ -204,10 +205,10 @@ TEST_F(ParallelConversionTest, HeaderLongerThanABlockIsReadBeforeTheRecords)
       s += "@CO\tcomment line number " + std::to_string(i) + " padding padding padding padding\n";
    s += SortedRecords(20);
    WriteSam(kSam, s);
-   samtoramntuple(kSam, kSeq, false, false, 505, 0);
+   samtoramntuple(kSam, kSeq, 505, 0);
    const Dump seq = ReadBack(kSeq);
 
-   samtoramntuple_parallel(kSam, kPar, 505, 0, 2, kTinyBlock);
+   samtoramntuple(kSam, kPar, 505, 0, 2, kTinyBlock);
    const Dump par = ReadBack(kPar);
    EXPECT_EQ(par.lines, seq.lines);
    EXPECT_EQ(par.rname_refs, seq.rname_refs);
@@ -218,7 +219,7 @@ TEST_F(ParallelConversionTest, HeaderLongerThanABlockIsReadBeforeTheRecords)
    EXPECT_EQ(headers->GetSize(), 45) << "@HD, three @SQ, @PG and forty @CO lines";
 }
 
-TEST_F(ParallelConversionTest, MalformedAndEmptyLinesAreSkippedLikeTheSequentialConverter)
+TEST_F(ParallelConversionTest, MalformedAndEmptyLinesAreSkippedInEveryBlock)
 {
    std::string s = Header();
    s += Record(0, "chr1", 0, 100);
@@ -233,8 +234,8 @@ TEST_F(ParallelConversionTest, MalformedAndEmptyLinesAreSkippedLikeTheSequential
    WriteSam(kSam, s);
 
    testing::internal::CaptureStderr();
-   samtoramntuple(kSam, kSeq, false, false, 505, 0);
-   samtoramntuple_parallel(kSam, kPar, 505, 0, 2, kTinyBlock);
+   samtoramntuple(kSam, kSeq, 505, 0);
+   samtoramntuple(kSam, kPar, 505, 0, 2, kTinyBlock);
    testing::internal::GetCapturedStderr();
 
    const Dump seq = ReadBack(kSeq);
@@ -246,21 +247,20 @@ TEST_F(ParallelConversionTest, MalformedAndEmptyLinesAreSkippedLikeTheSequential
    auto file = std::unique_ptr<TFile>(TFile::Open(kPar));
    auto *headers = file->Get<TList>("headers");
    ASSERT_NE(headers, nullptr);
-   EXPECT_EQ(headers->GetSize(), 6) << "the late @CO line is kept, as the sequential converter keeps it";
+   EXPECT_EQ(headers->GetSize(), 6) << "the late @CO line is kept";
 }
 
-// getline() hands the sequential parser a last line without '\n'; the block
-// reader has to keep that record too.
+// A last line without '\n' is still a record.
 TEST_F(ParallelConversionTest, LastLineWithoutNewlineIsKept)
 {
    std::string s = Header() + SortedRecords(30);
    s.pop_back();
    WriteSam(kSam, s);
-   samtoramntuple(kSam, kSeq, false, false, 505, 0);
+   samtoramntuple(kSam, kSeq, 505, 0);
    const Dump seq = ReadBack(kSeq);
    ASSERT_EQ(seq.lines.size(), 63U);
 
-   samtoramntuple_parallel(kSam, kPar, 505, 0, 2, kTinyBlock);
+   samtoramntuple(kSam, kPar, 505, 0, 2, kTinyBlock);
    const Dump par = ReadBack(kPar);
    EXPECT_EQ(par.lines, seq.lines);
    EXPECT_TRUE(par.sorted);
@@ -269,7 +269,7 @@ TEST_F(ParallelConversionTest, LastLineWithoutNewlineIsKept)
 TEST_F(ParallelConversionTest, MissingInputIsReported)
 {
    testing::internal::CaptureStdout();
-   samtoramntuple_parallel("does_not_exist.sam", kPar, 505, 0, 2);
+   samtoramntuple("does_not_exist.sam", kPar, 505, 0, 2);
    EXPECT_NE(testing::internal::GetCapturedStdout().find("Failed to parse SAM file"), std::string::npos);
 }
 
