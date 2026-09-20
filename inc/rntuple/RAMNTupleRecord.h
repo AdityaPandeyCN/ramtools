@@ -15,6 +15,8 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <mutex>
+#include <unordered_map>
 #include <cstdint>
 
 class RAMNTupleRefs;
@@ -29,35 +31,37 @@ class RAMNTupleRefs;
 class RAMNTupleRefs {
 private:
    std::vector<std::string> fRefVec;
-   mutable int fLastId;
-   mutable std::string fLastName;
+   /// Name -> id, so a lookup does not scan the vector.
+   std::unordered_map<std::string, int> fIndex;
+   /// Guards fRefVec and fIndex: the parallel converter looks names up from
+   /// several threads at once and inserts the ones it has not seen.
+   mutable std::mutex fMutex;
+
+   void Rebuild();
 
 public:
    RAMNTupleRefs();
    ~RAMNTupleRefs() = default;
+   RAMNTupleRefs(const RAMNTupleRefs &) = delete;
+   RAMNTupleRefs &operator=(const RAMNTupleRefs &) = delete;
 
+   /// Returns the id of \p rname, adding it to the table if it is new. Safe to
+   /// call from several threads at once.
    int GetRefId(const std::string &rname);
-   int FindRefId(const std::string &rname) const; ///< Lookup-only; returns -1 if not found.
+   /// Lookup-only; returns -1 if not found. Safe to call from several threads.
+   int FindRefId(const std::string &rname) const;
+   /// The returned reference stays valid as long as nothing is inserted, so it
+   /// must not be used while another thread may call GetRefId().
    const std::string &GetRefName(int rid) const;
 
    void Print() const;
-   size_t Size() const { return fRefVec.size(); }
+   size_t Size() const;
 
    // For RNTuple serialization
-   void Clear()
-   {
-      fRefVec.clear();
-      fLastId = -1;
-      fLastName.clear();
-   }
-   void AddRef(const std::string &ref) { fRefVec.push_back(ref); }
+   void Clear();
+   void AddRef(const std::string &ref);
    const std::vector<std::string> &GetRefs() const { return fRefVec; }
-   void SetRefs(const std::vector<std::string> &refs)
-   {
-      fRefVec = refs;
-      fLastId = -1;
-      fLastName.clear();
-   }
+   void SetRefs(const std::vector<std::string> &refs);
 };
 
 /**

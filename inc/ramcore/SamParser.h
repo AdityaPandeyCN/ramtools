@@ -86,12 +86,16 @@ public:
     
     size_t GetLinesProcessed() const { return lines_processed_; }
     size_t GetRecordsProcessed() const { return records_processed_; }
-    
+
+    /// Parses one alignment line (no trailing newline) into \p record, splitting
+    /// it in place. Returns false, after a warning naming \p line_number, when
+    /// the line is malformed. Has no shared state, so several threads may call
+    /// it at once on their own lines.
+    static bool ParseRecord(char *line, SamRecord &record, size_t line_number);
+
 private:
     size_t lines_processed_ = 0;
     size_t records_processed_ = 0;
-
-    bool ParseLine(char *line, SamRecord &record);
 };
 
 void StripCRLF(char* str);

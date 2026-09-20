@@ -26,12 +26,10 @@ bool RAMNTupleRecord::fgSeenUnplaced = false;
 static constexpr std::array<char, 16> kCodeToSeq{'=', 'A', 'C', 'M', 'G', 'R', 'S', 'V',
                                                  'T', 'W', 'Y', 'H', 'K', 'D', 'B', 'N'};
 static uint8_t kSeqToCode[256] = {0};
-static bool kSeqTableInit = false;
 
 // CIGAR encoding/decoding tables
 static constexpr std::array<char, 9> kCodeToCigar{'M', 'I', 'D', 'N', 'S', 'H', 'P', '=', 'X'};
 static uint8_t kCigarToCode[256] = {0};
-static bool kCigarTableInit = false;
 
 // Any byte that is not a base code maps here. 15 is 'N', as in htslib's
 // seq_nt16_table, so an unrepresentable base degrades to "unknown" rather than
@@ -74,9 +72,16 @@ const uint8_t RAMNTupleUtils::kIlluminaBinning[256] = {
    40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40};
 
 // RAMNTupleRefs Implementation
-RAMNTupleRefs::RAMNTupleRefs() : fLastId(-1)
+RAMNTupleRefs::RAMNTupleRefs()
 {
    fRefVec.reserve(100);
+}
+
+void RAMNTupleRefs::Rebuild()
+{
+   fIndex.clear();
+   for (size_t i = 0; i < fRefVec.size(); i++)
+      fIndex.emplace(fRefVec[i], static_cast<int>(i));
 }
 
 int RAMNTupleRefs::GetRefId(const std::string &rname)
@@ -85,53 +90,67 @@ int RAMNTupleRefs::GetRefId(const std::string &rname)
       return -1;
    }
 
-   if (rname == fLastName) {
-      return fLastId;
-   }
-
-   auto it = std::find(fRefVec.begin(), fRefVec.end(), rname);
-   if (it != fRefVec.end()) {
-      fLastId = static_cast<int>(std::distance(fRefVec.begin(), it));
-      fLastName = rname;
-      return fLastId;
-   }
-
-   if (static_cast<int>(fRefVec.size()) >= static_cast<int>(fRefVec.capacity())) {
-      fRefVec.reserve(fRefVec.capacity() * 2);
-   }
+   const std::lock_guard<std::mutex> lock(fMutex);
+   auto it = fIndex.find(rname);
+   if (it != fIndex.end())
+      return it->second;
 
    fRefVec.push_back(rname);
-   fLastId = static_cast<int>(fRefVec.size() - 1);
-   fLastName = rname;
-   return fLastId;
+   const int id = static_cast<int>(fRefVec.size() - 1);
+   fIndex.emplace(rname, id);
+   return id;
 }
 
 int RAMNTupleRefs::FindRefId(const std::string &rname) const
 {
    if (rname == "*")
       return -1;
-   if (rname == fLastName)
-      return fLastId;
-   auto it = std::find(fRefVec.begin(), fRefVec.end(), rname);
-   if (it != fRefVec.end())
-      return static_cast<int>(std::distance(fRefVec.begin(), it));
-   return -1;
+   const std::lock_guard<std::mutex> lock(fMutex);
+   auto it = fIndex.find(rname);
+   return it != fIndex.end() ? it->second : -1;
 }
 
 const std::string &RAMNTupleRefs::GetRefName(int rid) const
 {
    static const std::string star = "*";
-   if (rid == -1) {
-      return star;
-   }
+   const std::lock_guard<std::mutex> lock(fMutex);
    if (rid < 0 || rid >= static_cast<int>(fRefVec.size())) {
       return star;
    }
    return fRefVec[rid];
 }
 
+size_t RAMNTupleRefs::Size() const
+{
+   const std::lock_guard<std::mutex> lock(fMutex);
+   return fRefVec.size();
+}
+
+void RAMNTupleRefs::Clear()
+{
+   const std::lock_guard<std::mutex> lock(fMutex);
+   fRefVec.clear();
+   fIndex.clear();
+}
+
+void RAMNTupleRefs::AddRef(const std::string &ref)
+{
+   const std::lock_guard<std::mutex> lock(fMutex);
+   fRefVec.push_back(ref);
+   // A duplicate keeps its first id, as GetRefId would have given it.
+   fIndex.emplace(ref, static_cast<int>(fRefVec.size() - 1));
+}
+
+void RAMNTupleRefs::SetRefs(const std::vector<std::string> &refs)
+{
+   const std::lock_guard<std::mutex> lock(fMutex);
+   fRefVec = refs;
+   Rebuild();
+}
+
 void RAMNTupleRefs::Print() const
 {
+   const std::lock_guard<std::mutex> lock(fMutex);
    int size = static_cast<int>(fRefVec.size());
    printf("RAMNTupleRefs vector:\n");
    for (int i = 0; i < size; i++) {
@@ -389,9 +408,11 @@ std::unique_ptr<RNTupleModel> RAMNTupleRecord::MakeModel()
 
 namespace RAMNTupleUtils {
 
+// The lookup tables are built once, on first use. A function-local static makes
+// that initialisation thread-safe, which the parallel converter relies on.
 void InitializeTables()
 {
-   if (!kSeqTableInit) {
+   static const bool initialised = [] {
       std::memset(kSeqToCode, kSeqCodeUnknown, 256);
       for (size_t i = 0; i < kCodeToSeq.size(); i++) {
          const char base = kCodeToSeq[i];
@@ -399,16 +420,13 @@ void InitializeTables()
          // SAM permits lowercase bases (SEQ is [A-Za-z=.]+).
          kSeqToCode[static_cast<uint8_t>(std::tolower(static_cast<unsigned char>(base)))] = static_cast<uint8_t>(i);
       }
-      kSeqTableInit = true;
-   }
-
-   if (!kCigarTableInit) {
       std::memset(kCigarToCode, kCigarCodeInvalid, 256);
       for (size_t i = 0; i < kCodeToCigar.size(); i++) {
          kCigarToCode[static_cast<uint8_t>(kCodeToCigar[i])] = static_cast<uint8_t>(i);
       }
-      kCigarTableInit = true;
-   }
+      return true;
+   }();
+   (void)initialised;
 }
 
 std::string EncodeSequence(const std::string &seq)
