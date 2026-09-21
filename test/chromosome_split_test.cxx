@@ -35,7 +35,8 @@ protected:
 
 TEST_F(ChromosomeSplitTest, NoDataLoss)
 {
-   samtoramntuple("test.sam", "test_regular.root", true, true, 505, 1);
+   samtoramntuple(/*datafile=*/"test.sam", /*treefile=*/"test_regular.root", /*compression_algorithm=*/505,
+                  /*quality_policy=*/1);
    auto regularReader = ROOT::RNTupleReader::Open("RAM", "test_regular.root");
    Long64_t totalEntries = regularReader->GetNEntries();
 
@@ -104,7 +105,8 @@ TEST_F(ChromosomeSplitTest, MetadataPresent)
 
 TEST_F(ChromosomeSplitTest, RegionCountsMatchTheUnsplitFile)
 {
-   samtoramntuple("test.sam", "test_regular.root", true, true, 505, 1);
+   samtoramntuple(/*datafile=*/"test.sam", /*treefile=*/"test_regular.root", /*compression_algorithm=*/505,
+                  /*quality_policy=*/1);
    samtoramntuple_split_by_chromosome("test.sam", "test_split", 505, 1);
 
    for (const auto &entry : std::filesystem::directory_iterator(".")) {

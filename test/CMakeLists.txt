@@ -29,6 +29,7 @@ endfunction()
 add_ramcore_test(ramcoretests ramcoretests.cxx)
 add_ramcore_test(chromosome_split_test chromosome_split_test.cxx)
 add_ramcore_test(bam_conversion bam_conversion.cxx)
+add_ramcore_test(parallel_conversion_test parallel_conversion_test.cxx)
 
 if(TARGET samtoramntuple)
     add_test(NAME samtoramntuple_rejects_bad_compression COMMAND samtoramntuple in.sam -compression asd)
@@ -53,6 +54,6 @@ if(TARGET ramdump)
         RAMDUMP_BIN="$<TARGET_FILE:ramdump>")
 endif()
 
-install(TARGETS ramcoretests chromosome_split_test bam_conversion
+install(TARGETS ramcoretests chromosome_split_test bam_conversion parallel_conversion_test
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
