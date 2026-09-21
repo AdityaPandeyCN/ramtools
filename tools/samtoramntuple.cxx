@@ -114,22 +114,14 @@ int main(int argc, char* argv[]) {
        output = outfile.c_str();
     }
 
-    try {
-       if (do_split) {
-          samtoramntuple_split_by_chromosome(input, output, compression, quality_mode);
-       } else {
-          std::string ramfile = std::string(output);
-          if (ramfile.find(".root") == std::string::npos && ramfile.find(".ram") == std::string::npos) {
-             ramfile += ".ram";
-          }
-          if (!samtoramntuple(input, ramfile.c_str(), compression, quality_mode, threads))
-             return 1;
-       }
-    } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
-        return 1;
+    if (do_split) {
+       samtoramntuple_split_by_chromosome(input, output, compression, quality_mode);
+       return 0;
     }
-    
-    return 0;
+    std::string ramfile = std::string(output);
+    if (ramfile.find(".root") == std::string::npos && ramfile.find(".ram") == std::string::npos) {
+       ramfile += ".ram";
+    }
+    return samtoramntuple(input, ramfile.c_str(), compression, quality_mode, threads) ? 0 : 1;
 }
 

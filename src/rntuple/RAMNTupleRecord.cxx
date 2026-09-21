@@ -3,6 +3,9 @@
 // Complete implementation of RAM format using RNTuple
 
 #include "rntuple/RAMNTupleRecord.h"
+#include <ROOT/RNTuple.hxx>
+#include <ROOT/RNTupleReader.hxx>
+#include <ROOT/RNTupleTypes.hxx>
 #include <ROOT/RNTupleWriteOptions.hxx>
 #include <TError.h>
 #include <TFile.h>
@@ -12,6 +15,7 @@
 #include <cstring>
 #include <iostream>
 #include <mutex>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -187,19 +191,24 @@ void RAMNTupleRecord::InitializeRefs()
    fgOrder = RAMCoordinateOrder{};
 }
 
+// Whether the file holds an RNTuple of that name; false for a missing file.
+static bool HasNTuple(const std::string &filename, const std::string &ntupleName)
+{
+   std::unique_ptr<TFile> file(TFile::Open(filename.c_str(), "READ"));
+   return file && !file->IsZombie() && file->Get<ROOT::RNTuple>(ntupleName.c_str()) != nullptr;
+}
+
 std::unique_ptr<RNTupleReader> RAMNTupleRecord::OpenRAMFile(const std::string &filename, const std::string &ntupleName)
 {
-
    InitializeRefs();
 
-   try {
-      auto reader = RNTupleReader::Open(ntupleName, filename);
-      ReadAllRefs(filename);
-      return reader;
-   } catch (const std::exception &e) {
-      ::Error("RAMNTupleRecord::OpenRAMFile", "Failed to open file: %s", e.what());
+   if (!HasNTuple(filename, ntupleName)) {
+      ::Error("RAMNTupleRecord::OpenRAMFile", "%s has no RNTuple %s", filename.c_str(), ntupleName.c_str());
       return nullptr;
    }
+   auto reader = RNTupleReader::Open(ntupleName, filename);
+   ReadAllRefs(filename);
+   return reader;
 }
 
 void RAMNTupleRecord::WriteAllRefs(TFile &file)
@@ -236,53 +245,23 @@ void RAMNTupleRecord::WriteAllRefs(TFile &file)
 
 void RAMNTupleRecord::ReadAllRefs(const std::string &filename)
 {
-   try {
-      auto reader = RNTupleReader::Open("METADATA", filename);
-      if (!reader || reader->GetNEntries() == 0)
-         return;
+   if (!HasNTuple(filename, "METADATA"))
+      return;
+   auto reader = RNTupleReader::Open("METADATA", filename);
+   if (reader->GetNEntries() == 0)
+      return;
+   const auto &desc = reader->GetDescriptor();
+   auto has = [&](const char *field) { return desc.FindFieldId(field) != ROOT::kInvalidDescriptorId; };
 
-      try {
-         auto refs_view = reader->GetView<std::vector<std::string>>("rname_refs");
-         const auto &refs = refs_view(0);
-         fgRnameRefs->Clear();
-         for (const auto &ref : refs) {
-            fgRnameRefs->AddRef(ref);
-         }
-      } catch (...) {
-         // Field doesn't exist
-      }
+   if (has("rname_refs"))
+      fgRnameRefs->SetRefs(reader->GetView<std::vector<std::string>>("rname_refs")(0));
+   if (has("rnext_refs"))
+      fgRnextRefs->SetRefs(reader->GetView<std::vector<std::string>>("rnext_refs")(0));
 
-      // Absent in files written before the field existed; 0 means "unknown".
-      fgMaxRefSpan = 0;
-      try {
-         auto span_view = reader->GetView<uint32_t>("max_ref_span");
-         fgMaxRefSpan = span_view(0);
-      } catch (...) {
-         // Field doesn't exist
-      }
-
-      fgOrder.sorted = true;
-      try {
-         auto sorted_view = reader->GetView<bool>("coordinate_sorted");
-         fgOrder.sorted = sorted_view(0);
-      } catch (...) {
-         // Field doesn't exist
-      }
-
-      // Read next reference names
-      try {
-         auto rnext_view = reader->GetView<std::vector<std::string>>("rnext_refs");
-         const auto &refs = rnext_view(0);
-         fgRnextRefs->Clear();
-         for (const auto &ref : refs) {
-            fgRnextRefs->AddRef(ref);
-         }
-      } catch (...) {
-         // Field doesn't exist
-      }
-   } catch (...) {
-      // Metadata might not exist
-   }
+   // Absent in files written before the fields existed: 0 means "unknown", and
+   // such files are read as sorted.
+   fgMaxRefSpan = has("max_ref_span") ? reader->GetView<uint32_t>("max_ref_span")(0) : 0;
+   fgOrder.sorted = has("coordinate_sorted") ? reader->GetView<bool>("coordinate_sorted")(0) : true;
 }
 
 void RAMNTupleRecord::SetRNAME(const std::string &rname)

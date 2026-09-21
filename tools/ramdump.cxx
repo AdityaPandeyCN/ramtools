@@ -11,9 +11,10 @@
 #include <TList.h>
 #include <TNamed.h>
 
+#include <cerrno>
 #include <cstdint>
 #include <cstdio>
-#include <exception>
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -129,14 +130,10 @@ void Usage()
 bool ParseFlag(const std::string &text, uint16_t &out)
 {
    constexpr int kAnyBase = 0;
-   size_t used = 0;
-   long value = 0;
-   try {
-      value = std::stol(text, &used, kAnyBase);
-   } catch (const std::exception &) {
-      return false;
-   }
-   if (used != text.size() || value < 0 || value > UINT16_MAX)
+   char *end = nullptr;
+   errno = 0;
+   const long value = std::strtol(text.c_str(), &end, kAnyBase);
+   if (text.empty() || *end != '\0' || errno == ERANGE || value < 0 || value > UINT16_MAX)
       return false;
    out = static_cast<uint16_t>(value);
    return true;
