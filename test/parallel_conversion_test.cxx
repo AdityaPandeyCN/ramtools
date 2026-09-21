@@ -7,7 +7,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
-#include <stdexcept>
 #include <string>
 #include <vector>
 #include "ramcore/RAMNTupleView.h"
@@ -257,17 +256,17 @@ TEST_F(ParallelConversionTest, LastLineWithoutNewlineIsKept)
 }
 
 // A directory opens but fails on read.
-TEST_F(ParallelConversionTest, ReadErrorIsThrownAfterTheWorkersAreStopped)
+TEST_F(ParallelConversionTest, ReadErrorIsReportedAfterTheWorkersAreStopped)
 {
    testing::internal::CaptureStdout();
-   EXPECT_THROW(samtoramntuple(".", kPar, 505, 0, 3, kTinyBlock), std::runtime_error);
-   testing::internal::GetCapturedStdout();
+   EXPECT_FALSE(samtoramntuple(".", kPar, 505, 0, 3, kTinyBlock));
+   EXPECT_NE(testing::internal::GetCapturedStdout().find("Failed to read SAM file"), std::string::npos);
 }
 
 TEST_F(ParallelConversionTest, MissingInputIsReported)
 {
    testing::internal::CaptureStdout();
-   samtoramntuple("does_not_exist.sam", kPar, 505, 0, 2);
+   EXPECT_FALSE(samtoramntuple("does_not_exist.sam", kPar, 505, 0, 2));
    EXPECT_NE(testing::internal::GetCapturedStdout().find("Failed to parse SAM file"), std::string::npos);
 }
 

@@ -5,8 +5,9 @@
 #include <string>
 
 /// Converts a SAM file to one RAM file on \p threads threads, each handling
-/// blocks of \p block_bytes; the records keep their input order.
-void samtoramntuple(const char *datafile, const char *treefile, int compression_algorithm, uint32_t quality_policy,
+/// blocks of \p block_bytes; the records keep their input order. False when the
+/// input cannot be opened or read or the output cannot be created.
+bool samtoramntuple(const char *datafile, const char *treefile, int compression_algorithm, uint32_t quality_policy,
                     int threads = 1, size_t block_bytes = 64u << 20);
 
 /// Writes one RAM file per reference, named <output_prefix>_<rname>.root.

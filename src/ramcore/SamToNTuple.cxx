@@ -25,7 +25,6 @@
 #include <map>
 #include <memory>
 #include <mutex>
-#include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
@@ -227,9 +226,13 @@ class BlockReader {
    size_t fBlockBytes;
    std::vector<char> fCarry;
    bool fEof = false;
+   bool fError = false;
 
 public:
    BlockReader(FILE *file, size_t block_bytes) : fFile(file), fBlockBytes(std::max<size_t>(block_bytes, 1)) {}
+
+   /// A read error ends the input early; Next() then returns false.
+   bool Failed() const { return fError; }
 
    bool Next(std::vector<char> &out)
    {
@@ -241,8 +244,10 @@ public:
          const size_t n = fread(out.data() + old, 1, fBlockBytes, fFile);
          out.resize(old + n);
          if (n < fBlockBytes) {
-            if (ferror(fFile))
-               throw std::runtime_error("read error on the SAM input");
+            if (ferror(fFile)) {
+               fError = true;
+               return false;
+            }
             // A short read from a pipe is not the end.
             if (feof(fFile))
                fEof = true;
@@ -500,7 +505,7 @@ size_t ConsumeHeader(std::vector<char> &data, TList &headers, size_t &lines)
 
 } // namespace
 
-void samtoramntuple(const char *datafile, const char *treefile, int compression_algorithm, uint32_t quality_policy,
+bool samtoramntuple(const char *datafile, const char *treefile, int compression_algorithm, uint32_t quality_policy,
                     int threads, size_t block_bytes)
 {
    TStopwatch stopwatch;
@@ -511,13 +516,13 @@ void samtoramntuple(const char *datafile, const char *treefile, int compression_
    std::unique_ptr<FILE, int (*)(FILE *)> input(fopen(datafile, "r"), fclose);
    if (!input) {
       printf("Failed to parse SAM file %s\n", datafile);
-      return;
+      return false;
    }
 
    auto rootFile = std::unique_ptr<TFile>(TFile::Open(treefile, "RECREATE"));
    if (!rootFile || !rootFile->IsOpen()) {
       printf("Failed to create RAM file %s\n", treefile);
-      return;
+      return false;
    }
 
    ROOT::EnableThreadSafety();
@@ -597,6 +602,10 @@ void samtoramntuple(const char *datafile, const char *treefile, int compression_
       contexts.clear();
       writer.reset();
    }
+   if (reader.Failed()) {
+      printf("Failed to read SAM file %s\n", datafile);
+      return false;
+   }
 
    for (const auto &[tag, content] : progress.late_headers)
       HandleHeaderLine(headers, tag, content);
@@ -620,4 +629,5 @@ void samtoramntuple(const char *datafile, const char *treefile, int compression_
    printf("Processed %zu SAM records with %d threads\n\n", progress.records, threads);
 
    stopwatch.Print();
+   return true;
 }
