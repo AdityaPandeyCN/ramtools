@@ -137,7 +137,7 @@ bool SamParser::ParseFile(const char *filename, HeaderCallback header_cb, Record
       }
 
       record.Clear();
-      if (ParseLine(line, record)) {
+      if (ParseRecord(line, record, lines_processed_)) {
          if (record_cb) {
             record_cb(record, records_processed_);
          }
@@ -150,7 +150,7 @@ bool SamParser::ParseFile(const char *filename, HeaderCallback header_cb, Record
    return true;
 }
 
-bool SamParser::ParseLine(char *line, SamRecord &record)
+bool SamParser::ParseRecord(char *line, SamRecord &record, size_t line_number)
 {
    int field_num = 0;
    char *cursor = line;
@@ -171,37 +171,41 @@ bool SamParser::ParseLine(char *line, SamRecord &record)
          last_field = true;
       }
 
-      if (field_num <= 10 && !RequireNonEmpty(token, kMandatory[field_num], lines_processed_)) {
+      if (field_num <= 10 && !RequireNonEmpty(token, kMandatory[field_num], line_number)) {
          return false;
       }
 
       switch (field_num) {
       case 0: record.qname = token; break;
       case 1:
-         if (!ParseInt(token, record.flag, "flag", lines_processed_, 0, std::numeric_limits<unsigned short>::max()))
+         if (!ParseInt(token, record.flag, /*field_name=*/"flag", line_number, /*min_value=*/0,
+                       std::numeric_limits<unsigned short>::max()))
             return false;
          break;
       case 2: record.rname = token; break;
       case 3:
-         if (!ParseInt(token, record.pos, "pos", lines_processed_, 0, std::numeric_limits<int>::max()))
+         if (!ParseInt(token, record.pos, /*field_name=*/"pos", line_number, /*min_value=*/0,
+                       std::numeric_limits<int>::max()))
             return false;
          break;
       case 4:
-         if (!ParseInt(token, record.mapq, "mapq", lines_processed_, 0, std::numeric_limits<unsigned char>::max()))
+         if (!ParseInt(token, record.mapq, /*field_name=*/"mapq", line_number, /*min_value=*/0,
+                       std::numeric_limits<unsigned char>::max()))
             return false;
          break;
       case 5:
          record.cigar = token;
-         if (!ValidCigar(record.cigar, lines_processed_))
+         if (!ValidCigar(record.cigar, line_number))
             return false;
          break;
       case 6: record.rnext = token; break;
       case 7:
-         if (!ParseInt(token, record.pnext, "pnext", lines_processed_, 0, std::numeric_limits<int>::max()))
+         if (!ParseInt(token, record.pnext, /*field_name=*/"pnext", line_number, /*min_value=*/0,
+                       std::numeric_limits<int>::max()))
             return false;
          break;
       case 8:
-         if (!ParseInt(token, record.tlen, "tlen", lines_processed_, std::numeric_limits<int>::min() + 1,
+         if (!ParseInt(token, record.tlen, /*field_name=*/"tlen", line_number, std::numeric_limits<int>::min() + 1,
                        std::numeric_limits<int>::max()))
             return false;
          break;
@@ -214,7 +218,7 @@ bool SamParser::ParseLine(char *line, SamRecord &record)
    }
 
    if (field_num < 11) {
-      std::cerr << "[SamParser] Warning: line " << lines_processed_ << " has " << field_num
+      std::cerr << "[SamParser] Warning: line " << line_number << " has " << field_num
                 << " fields, at least 11 are required; record skipped.\n";
       return false;
    }

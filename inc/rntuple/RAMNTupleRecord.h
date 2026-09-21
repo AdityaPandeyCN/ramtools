@@ -15,6 +15,9 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <mutex>
+#include <unordered_map>
+#include <cstddef>
 #include <cstdint>
 
 class RAMNTupleRefs;
@@ -28,35 +31,53 @@ class RAMNTupleRefs;
  */
 class RAMNTupleRefs {
 private:
-   std::vector<std::string> fRefVec;
-   mutable int fLastId;
-   mutable std::string fLastName;
+   std::vector<std::string> m_refVec;
+   std::unordered_map<std::string, int> m_index;
+   mutable std::mutex m_mutex;
+
+   void Rebuild();
 
 public:
    RAMNTupleRefs();
    ~RAMNTupleRefs() = default;
+   RAMNTupleRefs(const RAMNTupleRefs &) = delete;
+   RAMNTupleRefs &operator=(const RAMNTupleRefs &) = delete;
 
+   /// Returns the id of \p rname, adding it if new. Thread-safe.
    int GetRefId(const std::string &rname);
-   int FindRefId(const std::string &rname) const; ///< Lookup-only; returns -1 if not found.
+   /// Lookup-only; returns -1 if not found. Thread-safe.
+   int FindRefId(const std::string &rname) const;
+   /// The reference is invalidated by a concurrent GetRefId().
    const std::string &GetRefName(int rid) const;
 
    void Print() const;
-   size_t Size() const { return fRefVec.size(); }
+   size_t Size() const;
 
    // For RNTuple serialization
-   void Clear()
+   void Clear();
+   void AddRef(const std::string &ref);
+   const std::vector<std::string> &GetRefs() const { return m_refVec; }
+   void SetRefs(const std::vector<std::string> &refs);
+};
+
+/// Running check of coordinate order: placed records ordered by (refid, pos),
+/// unplaced ones (refid -1) after them.
+struct RAMCoordinateOrder {
+   int32_t last_refid = -1;
+   int32_t last_pos = -1;
+   bool seen_unplaced = false;
+   bool sorted = true;
+
+   void Note(int32_t refid, int32_t pos)
    {
-      fRefVec.clear();
-      fLastId = -1;
-      fLastName.clear();
-   }
-   void AddRef(const std::string &ref) { fRefVec.push_back(ref); }
-   const std::vector<std::string> &GetRefs() const { return fRefVec; }
-   void SetRefs(const std::vector<std::string> &refs)
-   {
-      fRefVec = refs;
-      fLastId = -1;
-      fLastName.clear();
+      if (refid < 0) {
+         seen_unplaced = true;
+         return;
+      }
+      if (seen_unplaced || refid < last_refid || (refid == last_refid && pos < last_pos))
+         sorted = false;
+      last_refid = refid;
+      last_pos = pos;
    }
 };
 
@@ -106,15 +127,9 @@ public:
    /// knows how far before the region a read may start. 0 means unrecorded.
    static uint32_t fgMaxRefSpan;
 
-   /// Whether the records are in coordinate order: placed records ordered by
-   /// (refid, pos) and unplaced ones after them, as samtools sort writes them.
-   /// A region query can only seek to the region and stop at the first record
-   /// past it when they are; on an unsorted file it reads every record. Files
-   /// written before this field carry no answer and are read as sorted.
-   static bool fgCoordinateSorted;
-   static int32_t fgLastPlacedRefId;
-   static int32_t fgLastPlacedPos;
-   static bool fgSeenUnplaced;
+   /// Order of the open file; region queries seek only when sorted. Files
+   /// without the field are read as sorted.
+   static RAMCoordinateOrder fgOrder;
 
 public:
    RAMNTupleRecord();
@@ -177,21 +192,9 @@ public:
       if (span > fgMaxRefSpan)
          fgMaxRefSpan = span;
    }
-   static bool IsCoordinateSorted() { return fgCoordinateSorted; }
-   static void SetCoordinateSorted(bool sorted) { fgCoordinateSorted = sorted; }
-   /// Feeds one record to the running order check; refid -1 is an unplaced
-   /// record, which coordinate order puts after every placed one.
-   static void NotePlacement(int32_t refid_, int32_t pos_)
-   {
-      if (refid_ < 0) {
-         fgSeenUnplaced = true;
-         return;
-      }
-      if (fgSeenUnplaced || refid_ < fgLastPlacedRefId || (refid_ == fgLastPlacedRefId && pos_ < fgLastPlacedPos))
-         fgCoordinateSorted = false;
-      fgLastPlacedRefId = refid_;
-      fgLastPlacedPos = pos_;
-   }
+   static bool IsCoordinateSorted() { return fgOrder.sorted; }
+   static void SetCoordinateSorted(bool sorted) { fgOrder.sorted = sorted; }
+   static void NotePlacement(int32_t refid, int32_t pos) { fgOrder.Note(refid, pos); }
    /// Reference bases covered by this record's CIGAR (0 when it has none).
    uint32_t GetRefSpan() const;
    static RAMNTupleRefs *GetRnameRefs() { return fgRnameRefs.get(); }
