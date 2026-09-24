@@ -56,7 +56,8 @@ public:
    // For RNTuple serialization
    void Clear();
    void AddRef(const std::string &ref);
-   const std::vector<std::string> &GetRefs() const { return m_refVec; }
+   /// A copy, taken under the lock. Thread-safe.
+   std::vector<std::string> GetRefs() const;
    void SetRefs(const std::vector<std::string> &refs);
 };
 

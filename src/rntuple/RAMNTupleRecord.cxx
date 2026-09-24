@@ -139,6 +139,12 @@ void RAMNTupleRefs::AddRef(const std::string &ref)
    m_index.emplace(ref, static_cast<int>(m_refVec.size() - 1));
 }
 
+std::vector<std::string> RAMNTupleRefs::GetRefs() const
+{
+   const std::lock_guard<std::mutex> lock(m_mutex);
+   return m_refVec;
+}
+
 void RAMNTupleRefs::SetRefs(const std::vector<std::string> &refs)
 {
    const std::lock_guard<std::mutex> lock(m_mutex);
