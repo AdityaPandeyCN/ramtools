@@ -19,7 +19,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
-#include <cstring>
 #include <deque>
 #include <exception>
 #include <functional>
@@ -28,6 +27,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -403,30 +403,31 @@ BlockOrder ProcessBlock(Block &block, ROOT::RNTupleFillContext &ctx, ROOT::REntr
    RAMNTupleRefs &rname_refs = *RAMNTupleRecord::GetRnameRefs();
    RAMNTupleRefs &rnext_refs = *RAMNTupleRecord::GetRnextRefs();
 
-   char *cursor = block.data.data();
-   char *const end = cursor + block.data.size();
+   std::vector<char> &data = block.data;
+   size_t start = 0;
    size_t line_number = block.first_line;
-   while (cursor < end) {
-      char *nl = static_cast<char *>(memchr(cursor, '\n', static_cast<size_t>(end - cursor)));
-      if (!nl)
+   while (start < data.size()) {
+      const auto nl = std::find(data.begin() + static_cast<std::ptrdiff_t>(start), data.end(), '\n');
+      if (nl == data.end())
          break;
-      char *line = cursor;
-      cursor = nl + 1;
-      *nl = '\0';
+      const auto line_end = static_cast<size_t>(nl - data.begin());
+      data[line_end] = '\0';
+      char *line = &data[start];
+      const size_t line_start = start;
+      start = line_end + 1;
       ramcore::StripCRLF(line);
       const size_t this_line = line_number++;
 
-      if (line[0] == '\0')
+      if (data[line_start] == '\0')
          continue;
 
-      if (line[0] == '@') {
-         char *tab = strchr(line, '\t');
-         if (tab) {
-            *tab = '\0';
-            late_headers.emplace_back(line, tab + 1);
-         } else {
-            late_headers.emplace_back(line, "");
-         }
+      if (data[line_start] == '@') {
+         const std::string_view header(line);
+         const size_t tab = header.find('\t');
+         if (tab != std::string_view::npos)
+            late_headers.emplace_back(header.substr(0, tab), header.substr(tab + 1));
+         else
+            late_headers.emplace_back(header, "");
          continue;
       }
 
