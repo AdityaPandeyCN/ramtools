@@ -1,11 +1,15 @@
 #ifndef RAMCORE_SAMTONTUPLE_H
 #define RAMCORE_SAMTONTUPLE_H
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
-void samtoramntuple(const char *datafile, const char *treefile, bool split, bool cache, int compression_algorithm,
-                    uint32_t quality_policy);
+/// Converts a SAM file to one RAM file on \p threads threads, each handling
+/// blocks of \p block_bytes; the records keep their input order. False when the
+/// input cannot be opened or read or the output cannot be created.
+bool samtoramntuple(const char *datafile, const char *treefile, int compression_algorithm, uint32_t quality_policy,
+                    int threads = 1, size_t block_bytes = 64U << 20);
 
 /// Writes one RAM file per reference, named <output_prefix>_<rname>.root.
 /// Records stream to their file as they are parsed, in the order they arrive.

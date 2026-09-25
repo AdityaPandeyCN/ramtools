@@ -77,7 +77,7 @@ TEST_F(ramcoreTest, ConversionProducesExpectedEntries)
    const char *samFile = "samexample.sam";
    const char *rntupleFile = "test_rntuple.root";
 
-   samtoramntuple(samFile, rntupleFile, true, true, 505, 0);
+   samtoramntuple(samFile, rntupleFile, /*compression_algorithm=*/505, /*quality_policy=*/0);
 
    auto reader = ROOT::RNTupleReader::Open("RAM", rntupleFile);
    ASSERT_NE(reader, nullptr);
@@ -87,7 +87,7 @@ TEST_F(ramcoreTest, ConversionProducesExpectedEntries)
 TEST_F(ramcoreTest, RNTupleViewRegionQueries)
 {
    const char *rntupleFile = "test_rntuple.root";
-   samtoramntuple("samexample.sam", rntupleFile, true, true, 505, 0);
+   samtoramntuple(/*datafile=*/"samexample.sam", rntupleFile, /*compression_algorithm=*/505, /*quality_policy=*/0);
    Long64_t hit = ramntupleview(rntupleFile, "chr1:1-1000000", opts);
    EXPECT_GE(hit, 0);
 
@@ -128,7 +128,7 @@ TEST_F(ramcoreTest, RNTupleViewOpenFailure)
 TEST_F(ramcoreTest, RNTupleDataIntegrity)
 {
    const char *rntupleFile = "test_rntuple.root";
-   samtoramntuple("samexample.sam", rntupleFile, true, true, 505, 0);
+   samtoramntuple(/*datafile=*/"samexample.sam", rntupleFile, /*compression_algorithm=*/505, /*quality_policy=*/0);
 
    auto reader = ROOT::RNTupleReader::Open("RAM", rntupleFile);
    ASSERT_NE(reader, nullptr);
@@ -167,7 +167,7 @@ TEST_F(ramcoreTest, RNTupleViewCigarOverlap)
           << "AAAAAAAAAAAAAAAAAAAA\t*\n";
    }
 
-   samtoramntuple(customSam, rntupleFile, false, false, 505, 0);
+   samtoramntuple(customSam, rntupleFile, /*compression_algorithm=*/505, /*quality_policy=*/0);
 
    EXPECT_EQ(ramntupleview(rntupleFile, "chr1:140-160", opts), 1);
    EXPECT_EQ(ramntupleview(rntupleFile, "chr1:201-210", opts), 0);
@@ -199,7 +199,7 @@ TEST_F(ramcoreTest, RegionQueryReturnsAllOverlappingAlignments)
       sam << "supplementary\t2048\tchr1\t200\t60\t50M\t*\t0\t0\t" << seq << "\t*\n";
    }
 
-   samtoramntuple(customSam, rntupleFile, false, false, 505, 0);
+   samtoramntuple(customSam, rntupleFile, /*compression_algorithm=*/505, /*quality_policy=*/0);
 
    EXPECT_EQ(ramntupleview(rntupleFile, "chr1:1-500", opts), 4)
       << "every alignment placed over the region must be reported";
@@ -236,7 +236,7 @@ TEST_F(ramcoreTest, RegionQueryFindsReadsStartingBeforeTheIndexAnchor)
       sam << "after\t0\tchr1\t310000\t60\t50M\t*\t0\t0\t" << seq << "\t*\n";
    }
 
-   samtoramntuple(customSam, rntupleFile, false, false, 505, 0);
+   samtoramntuple(customSam, rntupleFile, /*compression_algorithm=*/505, /*quality_policy=*/0);
 
    EXPECT_EQ(ramntupleview(rntupleFile, "chr1:300000-300100", opts), 2)
       << "the spanning read overlaps the region and must not be skipped";
@@ -260,7 +260,7 @@ TEST_F(ramcoreTest, ScanVisitsEveryOverlappingRowInOrder)
       sam << "c\t0\tchr1\t300\t60\t4M\t*\t0\t0\tACGT\t*\n";
       sam << "d\t0\tchr2\t10\t60\t4M\t*\t0\t0\tACGT\t*\n";
    }
-   samtoramntuple(customSam, rntupleFile, false, false, 505, 0);
+   samtoramntuple(customSam, rntupleFile, /*compression_algorithm=*/505, /*quality_policy=*/0);
 
    auto reader = RAMNTupleRecord::OpenRAMFile(rntupleFile);
    ASSERT_NE(reader, nullptr);
@@ -302,7 +302,7 @@ TEST_F(ramcoreTest, UnsortedFileIsReadInFull)
    }
 
    testing::internal::CaptureStderr();
-   samtoramntuple(customSam, rntupleFile, false, false, 505, 0);
+   samtoramntuple(customSam, rntupleFile, /*compression_algorithm=*/505, /*quality_policy=*/0);
    EXPECT_NE(testing::internal::GetCapturedStderr().find("not in coordinate order"), std::string::npos);
 
    EXPECT_EQ(ramntupleview(rntupleFile, "chr1:1000-1100", opts), 2);
@@ -328,7 +328,7 @@ TEST_F(ramcoreTest, SortedFileIsMarkedSortedAndSeeks)
              << "\t*\n";
    }
 
-   samtoramntuple(customSam, rntupleFile, false, false, 505, 0);
+   samtoramntuple(customSam, rntupleFile, /*compression_algorithm=*/505, /*quality_policy=*/0);
 
    auto reader = RAMNTupleRecord::OpenRAMFile(rntupleFile);
    ASSERT_NE(reader, nullptr);
@@ -355,7 +355,7 @@ TEST_F(ramcoreTest, ConstructingARecordKeepsTheOpenFileState)
       sam << "c\t0\tchr1\t1050\t60\t50M\t*\t0\t0\t" << std::string(50, 'T') << "\t*\n";
    }
    testing::internal::CaptureStderr();
-   samtoramntuple(unsortedSam, unsortedFile, false, false, 505, 0);
+   samtoramntuple(unsortedSam, unsortedFile, /*compression_algorithm=*/505, /*quality_policy=*/0);
    testing::internal::GetCapturedStderr();
 
    {
@@ -375,7 +375,7 @@ TEST_F(ramcoreTest, ConstructingARecordKeepsTheOpenFileState)
       sam << "spanning\t0\tchr1\t1000\t60\t10M199990N10M\t*\t0\t0\t" << std::string(20, 'A') << "\t*\n";
       sam << "short\t0\tchr1\t300000\t60\t50M\t*\t0\t0\t" << std::string(50, 'C') << "\t*\n";
    }
-   samtoramntuple(sortedSam, sortedFile, false, false, 505, 0);
+   samtoramntuple(sortedSam, sortedFile, /*compression_algorithm=*/505, /*quality_policy=*/0);
 
    {
       auto reader = RAMNTupleRecord::OpenRAMFile(sortedFile);
@@ -425,7 +425,7 @@ TEST_F(ramcoreTest, SeekMatchesAFullScanOnASortedFile)
              << "\t*\t0\t0\t" << (mapped ? std::string(50, 'A') : "*") << "\t*\n";
       }
    }
-   samtoramntuple(customSam, rntupleFile, false, false, 505, 0);
+   samtoramntuple(customSam, rntupleFile, /*compression_algorithm=*/505, /*quality_policy=*/0);
 
    auto reader = RAMNTupleRecord::OpenRAMFile(rntupleFile);
    ASSERT_NE(reader, nullptr);
@@ -473,7 +473,7 @@ TEST_F(ramcoreTest, UnplacedRecordBeforePlacedOnesMeansUnsorted)
       sam << "b\t0\tchr1\t2000\t60\t50M\t*\t0\t0\t" << std::string(50, 'C') << "\t*\n";
    }
    testing::internal::CaptureStderr();
-   samtoramntuple(customSam, rntupleFile, false, false, 505, 0);
+   samtoramntuple(customSam, rntupleFile, /*compression_algorithm=*/505, /*quality_policy=*/0);
    EXPECT_NE(testing::internal::GetCapturedStderr().find("not in coordinate order"), std::string::npos);
 
    auto reader = RAMNTupleRecord::OpenRAMFile(rntupleFile);
@@ -637,7 +637,7 @@ TEST_F(ramcoreTest, SmartIndexSkipsUnmappedReads)
       sam << "mapped2\t0\tchr1\t2000\t60\t50M\t*\t0\t0\t" << std::string(50, 'A') << "\t*\n";
    }
 
-   samtoramntuple(customSam, rntupleFile, false, false, 505, 0);
+   samtoramntuple(customSam, rntupleFile, /*compression_algorithm=*/505, /*quality_policy=*/0);
 
    Long64_t count = ramntupleview(rntupleFile, "chr1:900-2100", opts);
    EXPECT_EQ(count, 2) << "Both mapped reads should be queryable";
@@ -667,7 +667,7 @@ TEST_F(ramcoreTest, SmartIndexCreatesEntryAtChromosomeBoundary)
              << "\t*\n";
    }
 
-   samtoramntuple(customSam, rntupleFile, false, false, 505, 0);
+   samtoramntuple(customSam, rntupleFile, /*compression_algorithm=*/505, /*quality_policy=*/0);
 
    Long64_t chr1_hits = ramntupleview(rntupleFile, "chr1:1000-6000", opts);
    EXPECT_GT(chr1_hits, 0) << "chr1 reads should be queryable";
@@ -695,7 +695,7 @@ TEST_F(ramcoreTest, SmartIndexRespectsPositionInterval)
       sam << "far_read\t0\tchr1\t50000\t60\t50M\t*\t0\t0\t" << std::string(50, 'A') << "\t*\n";
    }
 
-   samtoramntuple(customSam, rntupleFile, false, false, 505, 0);
+   samtoramntuple(customSam, rntupleFile, /*compression_algorithm=*/505, /*quality_policy=*/0);
    Long64_t cluster = ramntupleview(rntupleFile, "chr1:900-1100", opts);
    EXPECT_EQ(cluster, 200);
 
@@ -762,7 +762,7 @@ TEST_F(ramcoreTest, MalformedCigarRecordIsSkippedByConversion)
    }
 
    testing::internal::CaptureStderr();
-   samtoramntuple(samFile, rntupleFile, false, false, 505, 0);
+   samtoramntuple(samFile, rntupleFile, /*compression_algorithm=*/505, /*quality_policy=*/0);
    EXPECT_NE(testing::internal::GetCapturedStderr().find("malformed CIGAR '4Q' at line 4"), std::string::npos);
 
    auto reader = RAMNTupleRecord::OpenRAMFile(rntupleFile);
@@ -802,7 +802,7 @@ TEST_F(ramcoreTest, InvalidChromosomeDoesNotPolluteFRefVec)
    const char *samFile = "samexample.sam";
    const char *rntupleFile = "test_rntuple.root";
 
-   samtoramntuple(samFile, rntupleFile, true, true, 505, 0);
+   samtoramntuple(samFile, rntupleFile, /*compression_algorithm=*/505, /*quality_policy=*/0);
 
    const auto refsBefore = RAMNTupleRecord::GetRnameRefs()->Size();
 
@@ -835,7 +835,7 @@ TEST_F(ramcoreTest, QUALEncodingDecodingModes)
    }
 
    // No compression of QUAL field, stored as it is
-   samtoramntuple(samFile, ramFile, /*split=*/false, /*cache=*/false, /*compression_algorithm=*/505,
+   samtoramntuple(samFile, ramFile, /*compression_algorithm=*/505,
                   /*quality_policy=*/0);
 
    {
@@ -854,7 +854,7 @@ TEST_F(ramcoreTest, QUALEncodingDecodingModes)
    std::remove(ramFile);
 
    // Drop the quailty field , should stored as "*"
-   samtoramntuple(samFile, ramFile, /*split=*/false, /*cache=*/false, /*compression_algorithm=*/505,
+   samtoramntuple(samFile, ramFile, /*compression_algorithm=*/505,
                   /*quality_policy=*/RAMNTupleRecord::kDrop);
 
    {
@@ -870,7 +870,7 @@ TEST_F(ramcoreTest, QUALEncodingDecodingModes)
    std::remove(ramFile);
 
    // Illumina binning
-   samtoramntuple(samFile, ramFile, /*split=*/false, /*cache=*/false, /*compression_algorithm=*/505,
+   samtoramntuple(samFile, ramFile, /*compression_algorithm=*/505,
                   /*quality_policy=*/RAMNTupleRecord::kIlluminaBinning);
 
    {

@@ -50,7 +50,7 @@ int main(int argc, char* argv[]) {
        std::cout << "  -illumina    Use Illumina quality binning\n";
        std::cout << "  -dropqual    Drop quality scores\n";
        std::cout << "  -compression N  ROOT compression code, algorithm*100+level (default 505, ZSTD level 5)\n";
-       std::cout << "  -threads N   compress pages on N threads (default 1)\n";
+       std::cout << "  -threads N   parse and compress on N threads (default 1)\n";
        return 1;
     }
     
@@ -100,9 +100,8 @@ int main(int argc, char* argv[]) {
        std::cerr << "-threads needs a value\n";
        return 1;
     }
-    // The writer compresses pages on ROOT's thread pool once implicit
-    // multithreading is on; the parser stays sequential.
-    if (threads > 1)
+    // Split mode has one parser; its threads compress pages only.
+    if (threads > 1 && do_split)
        ROOT::EnableImplicitMT(threads);
 
     std::string outfile;
@@ -115,21 +114,14 @@ int main(int argc, char* argv[]) {
        output = outfile.c_str();
     }
 
-    try {
-       if (do_split) {
-          samtoramntuple_split_by_chromosome(input, output, compression, quality_mode);
-       } else {
-          std::string ramfile = std::string(output);
-          if (ramfile.find(".root") == std::string::npos && ramfile.find(".ram") == std::string::npos) {
-             ramfile += ".ram";
-          }
-          samtoramntuple(input, ramfile.c_str(), true, true, compression, quality_mode);
-       }
-    } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
-        return 1;
+    if (do_split) {
+       samtoramntuple_split_by_chromosome(input, output, compression, quality_mode);
+       return 0;
     }
-    
-    return 0;
+    std::string ramfile = std::string(output);
+    if (ramfile.find(".root") == std::string::npos && ramfile.find(".ram") == std::string::npos) {
+       ramfile += ".ram";
+    }
+    return samtoramntuple(input, ramfile.c_str(), compression, quality_mode, threads) ? 0 : 1;
 }
 
