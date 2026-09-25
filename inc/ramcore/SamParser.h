@@ -86,12 +86,13 @@ public:
     
     size_t GetLinesProcessed() const { return lines_processed_; }
     size_t GetRecordsProcessed() const { return records_processed_; }
-    
-private:
+
+    /// Parses one alignment line in place; false if malformed. Thread-safe.
+    static bool ParseRecord(char *line, SamRecord &record, size_t line_number);
+
+ private:
     size_t lines_processed_ = 0;
     size_t records_processed_ = 0;
-
-    bool ParseLine(char *line, SamRecord &record);
 };
 
 void StripCRLF(char* str);

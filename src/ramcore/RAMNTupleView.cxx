@@ -58,12 +58,7 @@ int resolveRefId(const char *name)
    if (!refs)
       return -1;
 
-   const auto &refVec = refs->GetRefs();
-   for (size_t i = 0; i < refVec.size(); i++) {
-      if (refVec[i] == name)
-         return static_cast<int>(i);
-   }
-   return -1;
+   return refs->FindRefId(name);
 }
 
 bool parseRegion(const std::string &region, TString &rname, Int_t &start, Int_t &end)

@@ -794,7 +794,7 @@ TEST_F(ramcoreTest, SamParserParsesValidIntegerBoundaries)
 }
 
 // Resolving a region's reference must be a lookup, never an insert: a query for a
-// contig the file does not contain used to append it to fRefVec, giving every
+// contig the file does not contain used to append it to m_refVec, giving every
 // later record's refid a different meaning than the one it was written with.
 // NOLINTNEXTLINE(misc-use-internal-linkage)
 TEST_F(ramcoreTest, InvalidChromosomeDoesNotPolluteFRefVec)
@@ -814,7 +814,7 @@ TEST_F(ramcoreTest, InvalidChromosomeDoesNotPolluteFRefVec)
 
    EXPECT_EQ(found, 0) << "a reference that is not in the file cannot have records";
    EXPECT_EQ(refsBefore, RAMNTupleRecord::GetRnameRefs()->Size())
-      << "Invalid chromosome 'chrINVALID' was inserted into fRefVec (regression of issue #23)";
+      << "Invalid chromosome 'chrINVALID' was inserted into m_refVec (regression of issue #23)";
 
    std::remove(rntupleFile);
 }
