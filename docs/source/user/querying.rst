@@ -3,14 +3,18 @@ Querying and dumping
 
 ``ramntupleview`` counts, ``ramdump`` prints. Both take the same region
 syntax and use the same overlap rule, and both agree with ``samtools view``
-on what a region contains.
+on what a region contains, with the one exception noted below.
 
 Regions
 -------
 
 A region is ``rname``, ``rname:pos`` or ``rname:start-end``. Positions are
 1-based and inclusive, as in samtools. ``rname`` alone means the whole
-reference; no region at all means the whole file.
+reference; no region at all, or ``*``, means the whole file.
+
+``rname:pos`` is the one form that differs from samtools: here it is the
+single base ``pos``, while ``samtools view`` reads it as ``pos`` to the end
+of the reference. Write ``rname:pos-end`` when you compare the two.
 
 Reference names may contain colons (GRCh38 has ``HLA-A*01:01:01:01``). The
 tools first try the whole string as a name, then split on the last colon,
@@ -38,11 +42,11 @@ ramntupleview
 
    ramntupleview <file.ram> [region]
 
-Prints the count and the time the query took. With an index the query seeks
-to the entry just before the region (backed off by the longest reference
-span in the file, so nothing that starts earlier and reaches in is missed)
-and stops at the first record past it. Without one it scans the reference
-from its first record.
+Prints the time the query took and the count. On a sorted file the query
+finds its first row by binary search over the ``refid`` and ``pos`` columns,
+starting the longest reference span in the file before the region so that
+nothing that starts earlier and reaches in is missed, and stops at the first
+record past it. On an unsorted file it tests every record.
 
 ramdump
 -------

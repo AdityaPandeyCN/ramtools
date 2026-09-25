@@ -17,7 +17,7 @@ Layout
      - Contents
    * - ``inc/rntuple``
      - ``RAMNTupleRecord``: the record, its encoders, the name tables, the
-       index, and the metadata reader and writer
+       coordinate order check, and the metadata reader and writer
    * - ``inc/ramcore``
      - the SAM parser, the converters, the region scan
    * - ``src``
@@ -38,29 +38,44 @@ How a record gets in
 
 .. code-block:: text
 
-   SAM line  ->  SamParser  ->  SamRecord  ->  RAMNTupleRecord setters  ->  RNTuple entry  ->  Fill()
+   SAM file  ->  64 MB blocks  ->  workers: ParseRecord -> setters -> Fill()  ->  clusters committed in input order
 
-1. **Read.** ``SamParser::ParseFile`` reads the input with ``getline``, so a
-   line of any length works. Header lines go to one callback as
-   ``(tag, content)``.
-2. **Validate.** Each alignment line is split on tabs without collapsing
-   empty fields. Every mandatory column is checked: integers in range, a
-   well-formed CIGAR, nothing empty. A bad line is reported with its number
-   and skipped; it never reaches the writer.
-3. **Encode.** The converter copies the ``SamRecord`` into a
-   ``RAMNTupleRecord`` through its setters. That is where the encoding
-   happens: names become table indices, positions become 0-based, the CIGAR
-   and the sequence are packed, and quality is stored according to the
-   policy flag.
-4. **Write.** The converter fills the RNTuple entry and, for a mapped
-   record, decides whether this row gets an index entry (first on its
-   reference, 10 kb past the last entry, or every 100th mapped read).
-5. **Finish.** After the last record it writes ``INDEX``, ``METADATA`` and
+``samtoramntuple`` in ``SamToNTuple.cxx`` runs on one reading thread and N
+workers, N being ``-threads``.
+
+1. **Header.** The reading thread reads the header lines first and fills the
+   RNAME table from the ``@SQ`` lines in order. It then fills the RNEXT
+   table with ``=`` and the same names, so the ids do not depend on which
+   worker meets a name first.
+2. **Read.** The reading thread cuts the rest of the input into blocks of
+   whole lines, about 64 MB each, numbers them, and pushes them onto a
+   bounded queue that holds N blocks.
+3. **Validate.** A worker pops a block and hands each line to
+   ``SamParser::ParseRecord``, which splits it on tabs in place without
+   collapsing empty fields and checks every mandatory column: integers in
+   range, a well-formed CIGAR, nothing empty. A bad line is reported with
+   its number and skipped; it never reaches the writer.
+4. **Encode.** The worker copies the ``SamRecord`` into its own
+   ``RAMNTupleRecord`` through the setters. That is where the encoding
+   happens: names become table ids, positions become 0-based, the CIGAR and
+   the sequence are packed, and quality is stored according to the policy
+   flag.
+5. **Write.** The worker fills its own ``RNTupleFillContext`` of ROOT's
+   ``RNTupleParallelWriter``, which compresses pages on that thread. At the
+   end of the block it flushes a cluster, waits until every earlier block has
+   been committed, and commits its staged cluster. The file therefore holds
+   the records in input order whatever the thread count.
+6. **Order and span.** Each block works out whether its records are in
+   coordinate order and its longest reference span. Merged in block order,
+   those give the file's sort flag and ``max_ref_span``.
+7. **Finish.** After the last block the converter writes ``METADATA`` and
    the ``headers`` key.
 
-``bamtoramntuple`` follows the same steps from htslib's ``bam1_t``,
-formatting each field to the text the SAM path would have seen, so both
-produce identical files.
+``bamtoramntuple`` and ``samtoramntuple_split_by_chromosome`` fill the
+records on one thread through an ordinary writer, and ``-threads`` gives
+them ROOT's implicit multithreading to compress pages. ``bamtoramntuple``
+reads htslib's ``bam1_t`` and formats each field to the text the SAM path
+would have seen, so both converters produce the same records.
 
 How a query gets out
 --------------------
@@ -76,10 +91,11 @@ change what "in the region" means, change it there and both tools follow.
 
 1. **Resolve the reference.** The whole string is tried as a name first,
    then split on the last colon, the order samtools uses.
-2. **Seek.** On a sorted file the index gives the row at or before
-   ``start - max_ref_span``. The backoff is what makes the sparse index
-   exact: no read that begins earlier and reaches into the region can be
-   skipped. On an unsorted file there is no seek.
+2. **Seek.** On a sorted file a binary search over the ``refid`` and
+   ``pos`` columns finds the first row at or after ``start -
+   max_ref_span``. The backoff means no read that begins earlier and
+   reaches into the region can be skipped. On an unsorted file there is no
+   seek.
 3. **Scan.** Rows are read forward through the ``refid``, ``pos`` and
    ``cigar`` columns only. On a sorted file the scan stops at the first row
    past the region; on an unsorted file it runs to the end.
@@ -93,7 +109,7 @@ change what "in the region" means, change it there and both tools follow.
 Shared state
 ------------
 
-Four things a query needs are not in the records. All four are static
+Three things a query needs are not in the records. All three are static
 members of ``RAMNTupleRecord``, one copy per process.
 
 .. list-table::
@@ -106,9 +122,6 @@ members of ``RAMNTupleRecord``, one copy per process.
    * - RNAME and RNEXT name tables
      - from ``@SQ`` lines and records
      - from ``METADATA``
-   * - region index
-     - one entry per index rule hit
-     - from ``INDEX``
    * - longest reference span
      - running maximum over records
      - from ``METADATA``
@@ -118,10 +131,18 @@ members of ``RAMNTupleRecord``, one copy per process.
 
 ``InitializeRefs()`` is the "start a new file" step: it creates the tables
 if they do not exist and wipes the per-file parts, so a second file in the
-same process does not inherit the first one's index, span or sort flag.
+same process does not inherit the first one's span or sort flag.
 It has exactly four callers: ``samtoramntuple``, ``bamtoramntuple``,
 ``samtoramntuple_split_by_chromosome`` (once, before the first record),
 and ``OpenRAMFile()``.
+
+The name tables are shared by the workers of a threaded conversion.
+``RAMNTupleRefs`` guards them with a mutex: ``GetRefId()``, ``FindRefId()``
+and ``GetRefs()``, which returns a copy, are safe to call from any thread.
+``GetRefName()`` returns a reference that a concurrent ``GetRefId()`` can
+invalidate, so call it only when no conversion is running. The span and the
+sort flag are not touched by the workers; the converter merges the
+per-block results into them.
 
 .. important::
 
@@ -152,7 +173,7 @@ When you add per-file state
 - Put its reset in ``InitializeRefs()`` and nowhere else.
 - Extend ``ConstructingARecordKeepsTheOpenFileState`` in
   ``test/ramcoretests.cxx``. It opens a file, creates a record view and a
-  record, and checks the flag, the span and the index size are unchanged.
+  record, and checks the sort flag and the span are unchanged.
 - If a writer computes it, extend ``SplitFilesKeepTheLongestSpan`` in
   ``test/chromosome_split_test.cxx`` the same way.
 - Test ``ramdump`` on unsorted input, not only ``ramntupleview``; only

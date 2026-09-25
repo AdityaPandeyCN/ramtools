@@ -160,8 +160,6 @@ Shared state
 
 .. doxygenfunction:: RAMNTupleRecord::GetRnextRefs
 
-.. doxygenfunction:: RAMNTupleRecord::GetIndex
-
 .. doxygenfunction:: RAMNTupleRecord::GetMaxRefSpan
 
 .. doxygenfunction:: RAMNTupleRecord::NoteRefSpan
@@ -182,12 +180,6 @@ Files
 .. doxygenfunction:: RAMNTupleRecord::WriteAllRefs
 
 .. doxygenfunction:: RAMNTupleRecord::ReadAllRefs
-
-.. doxygenfunction:: RAMNTupleRecord::WriteIndex(TFile &file)
-
-.. doxygenfunction:: RAMNTupleRecord::WriteIndex(TFile &file, const RAMNTupleIndex &index)
-
-.. doxygenfunction:: RAMNTupleRecord::ReadIndex
 
 Encoders
 --------

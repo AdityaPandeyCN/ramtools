@@ -2,8 +2,9 @@ Converting to RAM
 =================
 
 Two tools write RAM files: ``samtoramntuple`` reads SAM text and
-``bamtoramntuple`` reads BAM through htslib. They take the same options and
-produce the same file layout.
+``bamtoramntuple`` reads BAM through htslib. They produce the same file
+layout and take the same options, except that only ``samtoramntuple`` has
+``-split``.
 
 .. code-block:: bash
 
@@ -17,10 +18,38 @@ A RAM file is an ordinary ROOT file; either extension works.
 Options
 -------
 
-``-noindex``
-   Do not write the region index. Region queries on the file then scan from
-   the first record of the reference. Use it for files you will only ever
-   read end to end.
+``-threads N``
+   Convert on N threads; the default is 1. ``samtoramntuple`` reads the
+   input in 64 MB blocks of whole lines, and every thread parses, encodes
+   and compresses blocks of its own through ROOT's
+   ``RNTupleParallelWriter``. The blocks are committed to the file in input
+   order, so the records come out in the order they went in whatever the
+   thread count; only the cluster layout differs. Memory use is about
+   2 × N × 64 MB on top of ROOT's own. ``bamtoramntuple``, and
+   ``samtoramntuple`` with ``-split``, parse on one thread and use the
+   others to compress pages.
+
+``-compression N``
+   The ROOT compression code, ``algorithm * 100 + level``: 1 is ZLIB, 2
+   LZMA, 4 LZ4, 5 ZSTD, with levels 1 to 9, and 0 means no compression. The
+   default is 505, ZSTD level 5. Anything else is rejected with a message.
+   Measured on HG00154 (196 million records, 72 GB of SAM; see
+   :doc:`benchmarks`):
+
+   ========  =========  =========  ============================================
+   Code      Algorithm  Size (GB)  When to use it
+   ========  =========  =========  ============================================
+   ``505``   ZSTD 5     11.43      the default
+   ``503``   ZSTD 3     11.74      half the CPU of the default, 3% larger
+   ``501``   ZSTD 1     12.27      fastest to write; with ``-threads 4``
+                                   quicker than ``samtools`` writes a BAM
+   ``509``   ZSTD 9     10.38      smallest, about ten times the CPU of 505
+   ``404``   LZ4 4      16.54      larger than BAM (15.22 GB)
+   ``101``   ZLIB 1     14.14      for readers built without ZSTD
+   ``0``     none       83.71      for measuring the cost of compression
+   ========  =========  =========  ============================================
+
+   The codec makes little difference to query time.
 
 ``-illumina``
    Store quality scores with Illumina's 8-level binning instead of the full
@@ -32,37 +61,20 @@ Options
    Store no quality scores at all. Reads come back with ``*`` in the QUAL
    column.
 
-``-compression N``
-   The ROOT compression code, ``algorithm * 100 + level``. The default is
-   505, ZSTD level 5.
-
-   ========  =========  ======================================================
-   Code      Algorithm  When to use it
-   ========  =========  ======================================================
-   ``505``   ZSTD 5     the default: good ratio, fast decompression
-   ``404``   LZ4 4      fastest reads, larger files
-   ``101``   ZLIB 1     compatibility with tools that lack ZSTD
-   ``207``   LZMA 7     smallest files, slow to write and to read
-   ``0``     none       for measuring the cost of compression itself
-   ========  =========  ======================================================
-
-   Algorithms 1, 2, 4 and 5 with levels 1 to 9 are accepted; anything else is
-   rejected with a message. ``samtoramntuple`` only:
-
 ``-split``
-   Write one file per reference sequence instead of one file, named
-   ``<output>_<rname>.root``. Records with no reference (``*``) are not
-   written. See :ref:`split`.
+   ``samtoramntuple`` only. Write one file per reference sequence instead of
+   one file, named ``<output>_<rname>.root``. Records with no reference
+   (``*``) are not written. See :ref:`split`.
 
 What the input has to look like
 -------------------------------
 
-**Sorted input gets an index.** The index lets a region query jump close to
-the region and stop at the first record past it. Both steps assume the
-records are in coordinate order, the order ``samtools sort`` produces. The
-conversion checks the order as it goes and records the answer in the file.
-Unsorted input is stored as it arrives, marked unsorted, and gets no index;
-the conversion says so on standard error. Region queries on such a file are
+**Sort it for fast queries.** A region query on a sorted file finds the
+region by binary search and stops at the first record past it. Both steps
+assume the records are in coordinate order, the order ``samtools sort``
+produces. The conversion checks the order as it goes and records the answer
+in the file. Unsorted input is stored as it arrives and marked unsorted; the
+conversion says so on standard error. Region queries on such a file are
 still exact, but read every record. For fast queries, sort first:
 
 .. code-block:: bash
@@ -93,14 +105,13 @@ Splitting by chromosome
 each with its own metadata and a copy of the header. Records stream to
 their file as they are parsed, in the order they arrive, so the split needs
 no more memory than a plain conversion. Each file records whether its own
-records are in coordinate order and gets its own index when they are. Query
-and dump them like any other RAM file. Records with no reference sequence
-are not written to any of them.
+records are in coordinate order. Query and dump them like any other RAM
+file. Records with no reference sequence are not written to any of them.
 
 What gets printed
 -----------------
 
-Both tools print the reference tables, the number of records written and,
-with an index, the number of index entries. ``samtoramntuple`` also prints
-how many header lines and records it read, so the difference from the
-number written is the number of skipped records.
+Both tools print the name of the file written, the number of records in it
+and the reference table. ``samtoramntuple`` also prints how many header
+lines and records it read, so the difference from the number written is the
+number of skipped records.

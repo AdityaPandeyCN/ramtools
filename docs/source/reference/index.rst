@@ -17,9 +17,8 @@ functions, so anything a tool does can be done from C++.
 Before you start
 ----------------
 
-**Shared state.** The reference name tables, the region index, the longest
-span and the sort flag are static members of ``RAMNTupleRecord``, one set
-per process. ``InitializeRefs()`` resets the per-file parts; only the
+**Shared state.** The reference name tables, the longest span and the sort
+flag are static members of ``RAMNTupleRecord``, one set per process. ``InitializeRefs()`` resets the per-file parts; only the
 writers and ``OpenRAMFile()`` call it, and constructing a record never
 does. Two files cannot be open for querying at the same time in one
 process. The rule and the bug it prevents are described in
@@ -39,11 +38,11 @@ A conversion and a query
    #include "ramcore/RAMNTupleView.h"
    #include "rntuple/RAMNTupleRecord.h"
 
-   // SAM -> RAM, with the region index, ZSTD level 5, quality kept verbatim
-   samtoramntuple("reads.sam", "reads.ram", /*index=*/true, false, false, 505,
-                  RAMNTupleRecord::kPhred33);
+   // SAM -> RAM, ZSTD level 5, quality kept verbatim, on four threads
+   if (!samtoramntuple("reads.sam", "reads.ram", 505, RAMNTupleRecord::kPhred33, /*threads=*/4))
+      return 1;
 
-   // open: loads the name tables and the index
+   // open: loads the name tables, the longest span and the sort flag
    auto reader = RAMNTupleRecord::OpenRAMFile("reads.ram");
 
    // walk a region; the callback receives each matching row

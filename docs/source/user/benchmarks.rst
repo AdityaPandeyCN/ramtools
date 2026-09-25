@@ -27,14 +27,52 @@ zero is easy to spot. The binary refuses to run without
 ``RAMTOOLS_BENCH_RNTUPLE`` rather than measure an open that failed.
 
 ``scripts/run_benchmark.py`` runs the set and ``scripts/render_benchmark.py``
-turns the JSON output into the tables in the README.
+turns the JSON output into Markdown tables.
 
 Reproducing a number
 --------------------
 
 A benchmark result is only a result if someone else can get it. Record
 alongside every number: the input file and how it was made (``samtools
-sort`` order, index or not), the compression code, the ROOT version, and
-the machine. The README's tables were measured on the HG00154 sample from
-the 1000 Genomes Project, 196 million reads, converted at LZMA, LZ4 and
-ZLIB.
+sort`` order or not), the compression code, the thread count, the ROOT
+version, and the machine.
+
+HG00154 against BAM and CRAM
+----------------------------
+
+The numbers in the README come from the HG00154 sample of the 1000 Genomes
+Project: 196,040,370 records, 72.06 GB of SAM, coordinate sorted, GRCh37
+reference names. They were measured with ``/usr/bin/time`` and the tools
+themselves rather than with the binaries above, on an Intel i3-7020U (2
+cores, 4 threads, 12 GB of memory) with input and output on one hard disk,
+against samtools 1.13 on 4 threads.
+
+=============================================  ===========  =========  =========
+Output                                         Wall         CPU (s)    Size (GB)
+=============================================  ===========  =========  =========
+BAM, ``samtools view -@ 4 -b``                 24:08        3,589      15.22
+CRAM, ``samtools view -@ 4 -C -T ref.fasta``   12:34        1,817      7.77
+RAM, ZSTD 5, one thread                        1:30:06      5,258      11.43
+RAM, ZSTD 5, ``-threads 4``                    32:59        7,664      11.43
+RAM, ZSTD 3, ``-threads 4``                    17:09        3,513      11.74
+RAM, ZSTD 1, ``-threads 4``                    14:32        1,273      12.27
+=============================================  ===========  =========  =========
+
+CPU is user plus system time. A CRAM also needs its reference FASTA, 3.15 GB,
+to be read. Every output holds the same records.
+
+Region queries, best of three with a warm cache, counted with ``samtools
+view -c`` and ``ramdump -c``:
+
+================================  =========  =======  ========  =======
+Region                            Records    BAM (s)  CRAM (s)  RAM (s)
+================================  =========  =======  ========  =======
+``1:1000000-1000100``             2          0.15     0.10      0.48
+``13:32889611-32973805`` (BRCA2)  6,057      0.10     0.09      0.39
+``1:10000000-20000000``           582,985    0.80     1.75      0.40
+``2:1-100000000``                 7,048,385  8.59     21.43     0.85
+================================  =========  =======  ========  =======
+
+About 0.4 s of every RAM query is starting ROOT and opening the file; after
+that a count reads about 15 million records per second, since it needs only
+the ``refid``, ``pos`` and ``cigar`` columns.

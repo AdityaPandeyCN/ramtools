@@ -1,7 +1,7 @@
 The RAM file format
 ===================
 
-A RAM file is a ROOT file with three RNTuples and one key. You can open it
+A RAM file is a ROOT file with two RNTuples and one key. You can open it
 with any ROOT build that has RNTuple, and nothing in it is specific to
 RAMTools except the record encoding described below.
 
@@ -9,8 +9,7 @@ RAMTools except the record encoding described below.
 Object                  Contents
 ======================  =====================================================
 ``RAM`` (RNTuple)       one entry per alignment record, field ``record``
-``METADATA`` (RNTuple)  one entry: reference name tables and the longest span
-``INDEX`` (RNTuple)     one entry: the sparse position index (optional)
+``METADATA`` (RNTuple)  one entry: name tables, longest span, sort flag
 ``headers`` (TList)     the SAM header, one ``TNamed`` per line
 ======================  =====================================================
 
@@ -103,41 +102,29 @@ Metadata
 
 - ``rname_refs`` and ``rnext_refs``: the two name tables.
 - ``max_ref_span``: the longest reference span of any record in the file.
-  A region query seeks to the index entry at or before ``start -
-  max_ref_span`` rather than ``start``, which is what makes the sparse index
-  exact: no record that begins before the region and reaches into it can be
-  skipped. A value of 0 means the file predates this field, and queries
-  scan from the reference's first record.
-- ``coordinate_sorted``: whether the records are in coordinate order. A
-  query on a sorted file seeks through the index and stops at the first
-  record past the region; on an unsorted file it reads every record and
-  applies the same overlap test. Files written before this field are read
-  as sorted, which is what they always were assumed to be.
+  A region query starts its search that far before the region, so no record
+  that begins before the region and reaches into it can be skipped. A value
+  of 0 means the file predates this field, and queries start at the
+  reference's first record.
+- ``coordinate_sorted``: whether the records are in coordinate order. Files
+  written before this field are read as sorted, which is what they always
+  were assumed to be.
 
-The index
----------
+Finding a region
+----------------
 
-``INDEX`` has a single entry holding a vector of ``(refid, pos, entry)``
-triples, where ``entry`` is the row in ``RAM``. It is sparse. While
-converting, a mapped record (FLAG bit 0x4 clear, reference known) gets an
-entry when any of these hold:
+There is no separate index: in a sorted file the ``refid`` and ``pos``
+columns are one. To answer ``rname:start-end`` a query binary-searches
+those two columns for the first row at or after ``start - max_ref_span`` on
+that reference, reads ``refid``, ``pos`` and ``cigar`` forward from there,
+and stops as soon as ``refid`` changes or ``pos`` passes ``end``. Records in
+between are tested with the overlap rule in :doc:`querying`. The search
+takes about log2(rows) probes, 28 for 196 million records, each reading a
+page of ``refid`` and ``pos``. When ``coordinate_sorted`` is false the query
+skips the search and the early stop and tests every record instead.
 
-- it is the first mapped record on its reference;
-- its position is at least 10,000 bases past the last indexed position;
-- it is the 100th mapped record since the last periodic entry.
-
-A second record at an already indexed position is not indexed again, so an
-entry always points at the first record at that position. A file with no
-mapped records, one converted with ``-noindex``, or one whose records are
-not in coordinate order has no ``INDEX``.
-
-To answer ``rname:start-end`` a query looks up the entry with the largest
-position at or before ``start - max_ref_span`` on that reference, reads
-``refid``, ``pos`` and ``cigar`` forward from that row, and stops as soon as
-``refid`` changes or ``pos`` passes ``end``. Records in between are tested
-with the overlap rule in :doc:`querying`. This works because the file is in
-coordinate order. When ``coordinate_sorted`` is false the query skips the
-seek and the early stop and tests every record instead.
+Files written before the search replaced it also hold an ``INDEX`` ntuple
+with a sparse position index. Current tools ignore it.
 
 The header
 ----------
@@ -164,4 +151,5 @@ The tuples are plain RNTuples, so this works from ROOT with only the
    }
 
 ``RAMNTupleRecord::OpenRAMFile`` does the same and also loads the name
-tables and the index, which the getters for names and the region scan need.
+tables, the longest span and the sort flag, which the getters for names and
+the region scan need.

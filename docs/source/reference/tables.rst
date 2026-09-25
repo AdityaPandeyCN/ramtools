@@ -1,10 +1,10 @@
-Name tables and index
-=====================
+Name tables and order check
+===========================
 
-Both classes are owned by ``RAMNTupleRecord`` as static members and are
-serialised into the ``METADATA`` and ``INDEX`` ntuples. After
-``OpenRAMFile()`` you reach them through ``GetRnameRefs()``,
-``GetRnextRefs()`` and ``GetIndex()``.
+Both are owned by ``RAMNTupleRecord`` as static members and are serialised
+into the ``METADATA`` ntuple. After ``OpenRAMFile()`` you reach the tables
+through ``GetRnameRefs()`` and ``GetRnextRefs()``, and the order through
+``IsCoordinateSorted()``.
 
 RAMNTupleRefs
 -------------
@@ -27,24 +27,8 @@ RAMNTupleRefs
 
 .. doxygenfunction:: RAMNTupleRefs::Clear
 
-RAMNTupleIndex
---------------
+RAMCoordinateOrder
+------------------
 
-.. doxygenclass:: RAMNTupleIndex
-
-.. doxygenstruct:: RAMNTupleIndex::IndexEntry
+.. doxygenstruct:: RAMCoordinateOrder
    :members:
-
-.. doxygenfunction:: RAMNTupleIndex::AddItem
-
-.. doxygenfunction:: RAMNTupleIndex::GetRow
-
-.. doxygenfunction:: RAMNTupleIndex::GetRowsInRange
-
-.. doxygenfunction:: RAMNTupleIndex::Size
-
-.. doxygenfunction:: RAMNTupleIndex::GetEntries
-
-.. doxygenfunction:: RAMNTupleIndex::SetEntries
-
-.. doxygenfunction:: RAMNTupleIndex::Clear
