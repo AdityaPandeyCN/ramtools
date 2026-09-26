@@ -1,13 +1,23 @@
 #include "ramcore/QualityBlocks.h"
+#include "rntuple/RAMNTupleRecord.h"
 
+#include <ROOT/REntry.hxx>
+#include <ROOT/RNTupleReader.hxx>
+#include <ROOT/RNTupleTypes.hxx>
 #include <htscodecs/fqzcomp_qual.h>
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <future>
-#include <thread>
+#include <memory>
 #include <stdexcept>
+#include <string>
+#include <string_view>
+#include <thread>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -25,83 +35,83 @@ bool IsSamQuality(const std::string &qual)
 
 QualityBlockWriter::QualityBlockWriter(std::unique_ptr<ROOT::REntry> first, std::unique_ptr<ROOT::REntry> second,
                                        FillFn fill, std::size_t block_records)
-   : fEntries{std::move(first), std::move(second)},
-     fRecords{},
-     fBlobs{},
-     fFill(std::move(fill)),
-     fBlockRecords(std::max<std::size_t>(block_records, 1))
+   : m_entries{std::move(first), std::move(second)},
+     m_fill(std::move(fill)),
+     m_blockRecords(std::max<std::size_t>(block_records, 1))
 {
-   for (int i = 0; i < 2; i++) {
-      fRecords[i] = fEntries[i]->GetPtr<RAMNTupleRecord>("record").get();
-      fBlobs[i] = fEntries[i]->GetPtr<std::vector<std::uint8_t>>(RAMNTupleRecord::kQualBlockField).get();
+   for (std::size_t i = 0; i < 2; i++) {
+      m_records.at(i) = m_entries.at(i)->GetPtr<RAMNTupleRecord>("record").get();
+      m_blobs.at(i) = m_entries.at(i)->GetPtr<std::vector<std::uint8_t>>(RAMNTupleRecord::kQualBlockField).get();
    }
 }
 
 void QualityBlockWriter::Add()
 {
-   RAMNTupleRecord &rec = *fRecords[fCurrent];
+   RAMNTupleRecord &rec = *m_records.at(m_current);
    // fqzcomp takes no empty strings, so "*" stays in the record like any other
    // quality that cannot go into the block.
    if (rec.TestBit(RAMNTupleRecord::kPhred33) && rec.qual != "*" && !rec.qual.empty() && IsSamQuality(rec.qual)) {
       for (const char c : rec.qual)
-         fQuals.push_back(static_cast<char>(c - '!'));
-      fLengths.push_back(static_cast<uint32_t>(rec.qual.size()));
-      fFlags.push_back(((rec.flag & 0x10) ? FQZ_FREVERSE : 0) | ((rec.flag & 0x80) ? FQZ_FREAD2 : 0));
+         m_quals.push_back(static_cast<char>(c - '!'));
+      m_lengths.push_back(static_cast<uint32_t>(rec.qual.size()));
+      m_flags.push_back(((rec.flag & 0x10) ? FQZ_FREVERSE : 0) | ((rec.flag & 0x80) ? FQZ_FREAD2 : 0));
       rec.qual.clear();
       rec.SetBit(RAMNTupleRecord::kQualInBlock);
    } else {
       // The record object is reused; a bit left from the last record would be wrong.
       rec.compression_flags &= ~static_cast<uint32_t>(RAMNTupleRecord::kQualInBlock);
    }
-   fRows++;
+   m_rows++;
 
-   if (fPending)
-      fFill(*fEntries[1 - fCurrent]);
-   fPending = true;
-   fCurrent = 1 - fCurrent;
-   if (fRows == fBlockRecords)
+   if (m_pending)
+      m_fill(*m_entries.at(1 - m_current));
+   m_pending = true;
+   m_current = 1 - m_current;
+   if (m_rows == m_blockRecords)
       Finish();
 }
 
 void QualityBlockWriter::Finish()
 {
-   if (!fPending)
+   if (!m_pending)
       return;
-   const int last = 1 - fCurrent;
-   if (!fLengths.empty()) {
+   const std::size_t last = 1 - m_current;
+   if (!m_lengths.empty()) {
       fqz_slice slice{};
-      slice.num_records = static_cast<int>(fLengths.size());
-      slice.len = fLengths.data();
-      slice.flags = fFlags.data();
+      slice.num_records = static_cast<int>(m_lengths.size());
+      slice.len = m_lengths.data();
+      slice.flags = m_flags.data();
       std::size_t size = 0;
-      char *packed = fqz_compress(kFqzVersion, &slice, fQuals.data(), fQuals.size(), &size, kFqzStrategy, nullptr);
+      char *packed =
+         fqz_compress(kFqzVersion, &slice, m_quals.data(), m_quals.size(), &size, kFqzStrategy, /*gp=*/nullptr);
       if (!packed)
          throw std::runtime_error("fqzcomp could not compress a quality block");
-      fBlobs[last]->assign(packed, packed + size);
-      free(packed); // NOLINT(cppcoreguidelines-no-malloc): allocated by htscodecs
+      const std::string_view bytes(packed, size);
+      m_blobs.at(last)->assign(bytes.begin(), bytes.end());
+      free(packed); // NOLINT(cppcoreguidelines-owning-memory,cppcoreguidelines-no-malloc): allocated by htscodecs
    }
-   fFill(*fEntries[last]);
-   fBlobs[last]->clear();
+   m_fill(*m_entries.at(last));
+   m_blobs.at(last)->clear();
 
-   fBlockSizes.push_back(static_cast<uint32_t>(fRows));
-   fPending = false;
-   fRows = 0;
-   fQuals.clear();
-   fLengths.clear();
-   fFlags.clear();
+   m_blockSizes.push_back(static_cast<uint32_t>(m_rows));
+   m_pending = false;
+   m_rows = 0;
+   m_quals.clear();
+   m_lengths.clear();
+   m_flags.clear();
 }
 
 std::vector<uint32_t> QualityBlockWriter::TakeBlockSizes()
 {
-   return std::exchange(fBlockSizes, {});
+   return std::exchange(m_blockSizes, {});
 }
 
 QualityBlockReader::QualityBlockReader(ROOT::RNTupleReader &reader)
-   : fFlagsView(reader.GetView<uint32_t>("record.compression_flags")),
-     fReadAhead(std::max(1U, std::thread::hardware_concurrency()))
+   : m_flagsView(reader.GetView<uint32_t>("record.compression_flags")),
+     m_readAhead(std::max(1U, std::thread::hardware_concurrency()))
 {
    if (reader.GetDescriptor().FindFieldId(RAMNTupleRecord::kQualBlockField) != ROOT::kInvalidDescriptorId)
-      fView.emplace(reader.GetView<std::vector<std::uint8_t>>(RAMNTupleRecord::kQualBlockField));
+      m_view.emplace(reader.GetView<std::vector<std::uint8_t>>(RAMNTupleRecord::kQualBlockField));
 }
 
 std::string QualityBlockReader::Get(const RAMNTupleRecord &rec, ROOT::NTupleSize_t row)
@@ -111,14 +121,14 @@ std::string QualityBlockReader::Get(const RAMNTupleRecord &rec, ROOT::NTupleSize
 
    const auto &ends = RAMNTupleRecord::GetQualBlockEnds();
    const auto it = std::lower_bound(ends.begin(), ends.end(), static_cast<uint64_t>(row));
-   if (it == ends.end() || !fView)
+   if (it == ends.end() || !m_view)
       throw std::runtime_error("record " + std::to_string(row) + " has no quality block");
    const auto block = static_cast<std::size_t>(it - ends.begin());
-   if (block != fBlock)
+   if (block != m_block)
       Load(block);
 
-   const std::size_t slot = fCurrent.slots[static_cast<std::size_t>(row - fFirstRow)];
-   return fCurrent.quals.substr(fCurrent.offsets[slot], static_cast<std::size_t>(fCurrent.lengths[slot]));
+   const std::size_t slot = m_current.slots[static_cast<std::size_t>(row - m_firstRow)];
+   return m_current.quals.substr(m_current.offsets[slot], static_cast<std::size_t>(m_current.lengths[slot]));
 }
 
 QualityBlockReader::Packed QualityBlockReader::Read(std::size_t block)
@@ -129,11 +139,11 @@ QualityBlockReader::Packed QualityBlockReader::Read(std::size_t block)
    // The block holds the qualities of the records flagged kQualInBlock, in row order.
    p.slots.assign(static_cast<std::size_t>(ends[block] - first + 1), 0);
    for (std::size_t i = 0; i < p.slots.size(); i++) {
-      if (fFlagsView(first + i) & RAMNTupleRecord::kQualInBlock)
+      if (m_flagsView(first + i) & RAMNTupleRecord::kQualInBlock)
          p.slots[i] = p.records++;
    }
    if (p.records > 0) {
-      const std::vector<std::uint8_t> &bytes = (*fView)(ends[block]);
+      const std::vector<std::uint8_t> &bytes = (*m_view)(ends[block]);
       p.bytes.assign(bytes.begin(), bytes.end());
    }
    return p;
@@ -151,7 +161,7 @@ QualityBlockReader::Block QualityBlockReader::Decode(Packed packed)
       if (!out)
          throw std::runtime_error("fqzcomp could not decode a quality block");
       b.quals.assign(out, size);
-      free(out); // NOLINT(cppcoreguidelines-no-malloc): allocated by htscodecs
+      free(out); // NOLINT(cppcoreguidelines-owning-memory,cppcoreguidelines-no-malloc): allocated by htscodecs
       for (auto &c : b.quals)
          c = static_cast<char>(c + '!');
    }
@@ -171,21 +181,21 @@ void QualityBlockReader::Load(std::size_t block)
    // other threads while this one is used, one more block for each block the
    // scan has gone on, so a short scan wastes little. A lookup of one block
    // starts nothing.
-   fRun = (fBlock != kNoBlock && block == fBlock + 1) ? fRun + 1 : 0;
+   m_run = (m_block != kNoBlock && block == m_block + 1) ? m_run + 1 : 0;
 
-   auto ahead = fAhead.find(block);
-   if (ahead != fAhead.end()) {
-      fCurrent = ahead->second.get();
-      fAhead.erase(ahead);
+   auto ahead = m_ahead.find(block);
+   if (ahead != m_ahead.end()) {
+      m_current = ahead->second.get();
+      m_ahead.erase(ahead);
    } else {
-      fCurrent = Decode(Read(block));
+      m_current = Decode(Read(block));
    }
-   fBlock = block;
-   fFirstRow = block == 0 ? 0 : ends[block - 1] + 1;
+   m_block = block;
+   m_firstRow = block == 0 ? 0 : ends[block - 1] + 1;
 
-   const std::size_t depth = std::min(fRun, fReadAhead);
+   const std::size_t depth = std::min(m_run, m_readAhead);
    for (std::size_t next = block + 1; next < ends.size() && next <= block + depth; next++) {
-      if (fAhead.count(next) == 0)
-         fAhead.emplace(next, std::async(std::launch::async, Decode, Read(next)));
+      if (m_ahead.count(next) == 0)
+         m_ahead.emplace(next, std::async(std::launch::async, Decode, Read(next)));
    }
 }

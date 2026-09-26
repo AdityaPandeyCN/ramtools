@@ -3,6 +3,7 @@
 #include "ramcore/QualityBlocks.h"
 #include "rntuple/RAMNTupleRecord.h"
 
+#include <ROOT/REntry.hxx>
 #include <ROOT/RNTupleWriter.hxx>
 #include <TFile.h>
 
@@ -89,7 +90,7 @@ TEST_F(QualityBlocksTest, EveryQualityComesBackInAnyOrder)
       {0, "*"},
       {0, "JJJJJJJJJJJJ"},
    };
-   const auto sizes = Write(reads, 3, RAMNTupleRecord::kPhred33);
+   const auto sizes = Write(reads, /*block=*/3, RAMNTupleRecord::kPhred33);
    EXPECT_EQ(sizes, (std::vector<uint32_t>{3, 3, 3, 1}));
 
    std::vector<std::size_t> forward;
@@ -105,7 +106,7 @@ TEST_F(QualityBlocksTest, EveryQualityComesBackInAnyOrder)
 TEST_F(QualityBlocksTest, OnlyPlainSamQualityGoesIntoTheBlock)
 {
    const std::vector<Read> reads = {{0, "IIII"}, {0, "*"}, {0, "AB C"}, {0, "IIII"}};
-   Write(reads, 10, RAMNTupleRecord::kPhred33);
+   Write(reads, /*block=*/10, RAMNTupleRecord::kPhred33);
 
    auto reader = RAMNTupleRecord::OpenRAMFile(kFile);
    ASSERT_NE(reader, nullptr);
@@ -121,14 +122,14 @@ TEST_F(QualityBlocksTest, OnlyPlainSamQualityGoesIntoTheBlock)
 TEST_F(QualityBlocksTest, ABlockWithoutQualitiesNeedsNoData)
 {
    const std::vector<Read> reads = {{0, "*"}, {0, "*"}, {0, "*"}, {0, "HHHH"}};
-   Write(reads, 3, RAMNTupleRecord::kPhred33);
+   Write(reads, /*block=*/3, RAMNTupleRecord::kPhred33);
    ExpectQualities(reads, {3, 0, 1, 2});
 }
 
 TEST_F(QualityBlocksTest, LossyPoliciesKeepTheirOwnEncoding)
 {
    const std::vector<Read> reads = {{0, "IIII"}, {0, "!!!!"}};
-   Write(reads, 3, RAMNTupleRecord::kDrop);
+   Write(reads, /*block=*/3, RAMNTupleRecord::kDrop);
    auto reader = RAMNTupleRecord::OpenRAMFile(kFile);
    ASSERT_NE(reader, nullptr);
    auto view = reader->GetView<RAMNTupleRecord>("record");
@@ -143,7 +144,7 @@ TEST_F(QualityBlocksTest, LossyPoliciesKeepTheirOwnEncoding)
 TEST_F(QualityBlocksTest, TheInBlockBitIsClearedOnReuse)
 {
    const std::vector<Read> reads = {{0, "IIII"}, {0, "IIII"}, {0, "*"}, {0, "*"}};
-   Write(reads, 10, RAMNTupleRecord::kPhred33);
+   Write(reads, /*block=*/10, RAMNTupleRecord::kPhred33);
    ExpectQualities(reads, {0, 1, 2, 3});
 }
 

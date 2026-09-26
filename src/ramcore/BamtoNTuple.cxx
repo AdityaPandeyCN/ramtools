@@ -3,6 +3,7 @@
 
 #include "rntuple/RAMNTupleRecord.h"
 
+#include <ROOT/REntry.hxx>
 #include <ROOT/RNTupleModel.hxx>
 #include <ROOT/RNTupleWriteOptions.hxx>
 #include <ROOT/RNTupleWriter.hxx>

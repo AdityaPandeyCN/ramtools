@@ -9,8 +9,10 @@
 
 #include <ROOT/REntry.hxx>
 #include <ROOT/RNTupleReader.hxx>
+#include <ROOT/RNTupleTypes.hxx>
 #include <ROOT/RNTupleView.hxx>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -37,7 +39,7 @@ public:
                       std::size_t block_records = kQualityBlockRecords);
 
    /// The record to set for the next input record.
-   RAMNTupleRecord &Record() { return *fRecords[fCurrent]; }
+   RAMNTupleRecord &Record() { return *m_records.at(m_current); }
    /// Takes the record set through Record().
    void Add();
    /// Ends the current block. Call it at the end of the input and wherever the
@@ -47,18 +49,18 @@ public:
    std::vector<uint32_t> TakeBlockSizes();
 
 private:
-   std::unique_ptr<ROOT::REntry> fEntries[2];
-   RAMNTupleRecord *fRecords[2];
-   std::vector<std::uint8_t> *fBlobs[2];
-   FillFn fFill;
-   std::size_t fBlockRecords;
-   int fCurrent = 0;
-   bool fPending = false;
-   std::size_t fRows = 0;
-   std::string fQuals;
-   std::vector<uint32_t> fLengths;
-   std::vector<uint32_t> fFlags;
-   std::vector<uint32_t> fBlockSizes;
+   std::array<std::unique_ptr<ROOT::REntry>, 2> m_entries;
+   std::array<RAMNTupleRecord *, 2> m_records{};
+   std::array<std::vector<std::uint8_t> *, 2> m_blobs{};
+   FillFn m_fill;
+   std::size_t m_blockRecords;
+   std::size_t m_current = 0;
+   bool m_pending = false;
+   std::size_t m_rows = 0;
+   std::string m_quals;
+   std::vector<uint32_t> m_lengths;
+   std::vector<uint32_t> m_flags;
+   std::vector<uint32_t> m_blockSizes;
 };
 
 /// Gives back QUAL as SAM text for records read from a RAM file, decoding one
@@ -91,14 +93,14 @@ private:
    static Block Decode(Packed packed);
    void Load(std::size_t block);
 
-   ROOT::RNTupleView<uint32_t> fFlagsView;
-   std::optional<ROOT::RNTupleView<std::vector<std::uint8_t>>> fView;
-   std::size_t fReadAhead;
-   std::size_t fBlock = kNoBlock;
-   std::size_t fRun = 0; ///< Consecutive blocks read so far.
-   uint64_t fFirstRow = 0;
-   Block fCurrent;
-   std::map<std::size_t, std::future<Block>> fAhead;
+   ROOT::RNTupleView<uint32_t> m_flagsView;
+   std::optional<ROOT::RNTupleView<std::vector<std::uint8_t>>> m_view;
+   std::size_t m_readAhead;
+   std::size_t m_block = kNoBlock;
+   std::size_t m_run = 0; ///< Consecutive blocks read so far.
+   uint64_t m_firstRow = 0;
+   Block m_current;
+   std::map<std::size_t, std::future<Block>> m_ahead;
 };
 
 #endif // RAMCORE_QUALITYBLOCKS_H

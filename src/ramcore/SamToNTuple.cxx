@@ -3,6 +3,7 @@
 #include "ramcore/SamParser.h"
 #include "rntuple/RAMNTupleRecord.h"
 
+#include <ROOT/REntry.hxx>
 #include <ROOT/RNTupleModel.hxx>
 #include <ROOT/RNTupleWriter.hxx>
 #include <ROOT/RNTupleWriteOptions.hxx>
@@ -77,7 +78,7 @@ namespace {
 struct ChromosomeWriter {
    std::unique_ptr<TFile> file{};
    std::unique_ptr<ROOT::RNTupleWriter> writer{};
-   std::unique_ptr<QualityBlockWriter> out{};
+   std::unique_ptr<QualityBlockWriter> out;
    int64_t rows = 0;
    int32_t last_pos = -1;
    bool sorted = true;
