@@ -626,6 +626,41 @@ TEST_F(ramcoreTest, RecordGetters)
 
 } // namespace
 
+// Mates on the same reference store PNEXT and TLEN relative to POS; they must
+// read back unchanged, and stay absolute where the difference would overflow.
+TEST_F(ramcoreTest, MateFieldsReadBackUnchanged)
+{
+   struct Case {
+      int32_t pos;
+      const char *cigar;
+      int32_t pnext;
+      int32_t tlen;
+      bool sameReference;
+      bool packed;
+   };
+   const int32_t max = std::numeric_limits<int32_t>::max();
+   const std::vector<Case> cases = {
+      {100, "76M", 300, 275, true, true},
+      {300, "76M", 100, -275, true, true},
+      {100, "46M30S", 100, 46, true, true},
+      {100, "*", 100, 0, true, true},
+      {100, "76M", 5000, 0, false, false},
+      {1, "10M", max, -max, true, false},
+      {max, "10M", 1, max, true, false},
+   };
+   RAMNTupleRecord rec; // reused, as the converters do
+   for (const auto &c : cases) {
+      rec.SetPOS(c.pos);
+      rec.SetCIGAR(c.cigar);
+      rec.SetPNEXT(c.pnext);
+      rec.SetTLEN(c.tlen);
+      rec.PackMateFields(c.sameReference);
+      EXPECT_EQ(rec.TestBit(RAMNTupleRecord::kMateRelative), c.packed) << "pos " << c.pos;
+      EXPECT_EQ(rec.GetPNEXT(), c.pnext) << "pos " << c.pos;
+      EXPECT_EQ(rec.GetTLEN(), c.tlen) << "pos " << c.pos;
+   }
+}
+
 TEST_F(ramcoreTest, SmartIndexSkipsUnmappedReads)
 {
    const char *customSam = "test_unmapped_index.sam";

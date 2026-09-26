@@ -182,6 +182,7 @@ void FillRecord(RAMNTupleRecord *rec, const bam1_t *b, const sam_hdr_t *hdr, uin
    rec->SetREFNEXT(rnext);
    rec->SetPNEXT(static_cast<int32_t>(b->core.mpos + 1));
    rec->SetTLEN(static_cast<int32_t>(b->core.isize));
+   rec->PackMateFields(b->core.mtid >= 0 && b->core.mtid == b->core.tid);
    rec->SetSEQ(GetSeq(b));
    rec->SetQUAL(GetQual(b));
 

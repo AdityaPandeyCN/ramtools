@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <cstring>
 #include <iostream>
+#include <limits>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -290,6 +291,53 @@ const std::string &RAMNTupleRecord::GetRNAME() const
 const std::string &RAMNTupleRecord::GetRNEXT() const
 {
    return fgRnextRefs->GetRefName(refnext);
+}
+
+namespace {
+
+// Which side of the read its mate starts on: -1, 0 or 1.
+int64_t MateSide(int64_t distance)
+{
+   return (distance > 0) - (distance < 0);
+}
+
+bool FitsInt32(int64_t v)
+{
+   return v >= std::numeric_limits<int32_t>::min() && v <= std::numeric_limits<int32_t>::max();
+}
+
+} // namespace
+
+// With the mate on the same reference, `pnext` holds its distance d from POS and
+// `tlen` holds TLEN - d - side * (span - 1), which is near 0: TLEN runs from one
+// read's start to the other's end. POS, the CIGAR and d are enough to undo both.
+void RAMNTupleRecord::PackMateFields(bool sameReference)
+{
+   compression_flags &= ~static_cast<uint32_t>(kMateRelative);
+   if (!sameReference)
+      return;
+   const int64_t distance = int64_t{pnext} - pos;
+   const int64_t rest = int64_t{tlen} - distance - MateSide(distance) * (int64_t{GetRefSpan()} - 1);
+   if (!FitsInt32(distance) || !FitsInt32(rest))
+      return;
+   pnext = static_cast<int32_t>(distance);
+   tlen = static_cast<int32_t>(rest);
+   SetBit(kMateRelative);
+}
+
+int32_t RAMNTupleRecord::GetPNEXT() const
+{
+   // SAM is 1-based, we are 0-based
+   if (!TestBit(kMateRelative))
+      return pnext + 1;
+   return static_cast<int32_t>(int64_t{pos} + pnext + 1);
+}
+
+int32_t RAMNTupleRecord::GetTLEN() const
+{
+   if (!TestBit(kMateRelative))
+      return tlen;
+   return static_cast<int32_t>(int64_t{tlen} + pnext + MateSide(pnext) * (int64_t{GetRefSpan()} - 1));
 }
 
 uint32_t RAMNTupleRecord::GetRefSpan() const

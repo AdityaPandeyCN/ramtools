@@ -68,6 +68,8 @@ void FillRecordFields(const ramcore::SamRecord &sam_record, RAMNTupleRecord &rec
    rec.ResetNOPT();
    for (const auto &opt : sam_record.optional_fields)
       rec.SetOPT(opt);
+
+   rec.PackMateFields(sam_record.rnext == "=" || (sam_record.rnext == sam_record.rname && sam_record.rname != "*"));
 }
 
 } // namespace

@@ -103,7 +103,8 @@ public:
       kPhred33 = 1 << 14,         // Default Phred+33 quality score
       kIlluminaBinning = 1 << 15, // Illumina 8 bin compression
       kDrop = 1 << 16,            // Drop quality score
-      kQualInBlock = 1 << 18      // QUAL is in the fqzcomp block, not in `qual`
+      kQualInBlock = 1 << 18,     // QUAL is in the fqzcomp block, not in `qual`
+      kMateRelative = 1 << 19     // `pnext` and `tlen` are stored relative to `pos`
    };
 
    static constexpr const char *kQualBlockField = "qualblock";
@@ -172,8 +173,8 @@ public:
    std::string GetCIGAR() const;
    const std::string &GetRNEXT() const;
    int32_t GetREFNEXT() const { return refnext; }
-   int32_t GetPNEXT() const { return pnext + 1; } // Convert back to 1-based for SAM
-   int32_t GetTLEN() const { return tlen; }
+   int32_t GetPNEXT() const;
+   int32_t GetTLEN() const;
    std::string GetSEQ() const;
    std::string GetQUAL() const;
    const std::vector<std::string> &GetTags() const { return tags; }
@@ -191,6 +192,9 @@ public:
    bool IsValid() const;
    void SetBit(uint32_t bit) { compression_flags |= bit; }
    bool TestBit(uint32_t bit) const { return compression_flags & bit; }
+   /// Stores PNEXT and TLEN relative to POS if the mate is on the same reference.
+   /// Call it once POS, CIGAR, PNEXT and TLEN are set.
+   void PackMateFields(bool sameReference);
 
    // Static managers
    static void InitializeRefs();
