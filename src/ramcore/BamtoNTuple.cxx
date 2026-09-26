@@ -1,4 +1,5 @@
 #include "ramcore/BamtoNTuple.h"
+#include "ramcore/QualityBlocks.h"
 
 #include "rntuple/RAMNTupleRecord.h"
 
@@ -232,17 +233,18 @@ void bamtoramntuple(const char *bamfile, const char *treefile, bool /*split*/, b
    opts.SetMaxUnzippedPageSize(64000);
 
    auto writer = ROOT::RNTupleWriter::Append(std::move(model), "RAM", *rootFile, opts);
-   auto entry = writer->GetModel().CreateEntry();
-   auto recordPtr = entry->GetPtr<RAMNTupleRecord>("record");
+   QualityBlockWriter out(writer->GetModel().CreateEntry(), writer->GetModel().CreateEntry(),
+                          [&writer](ROOT::REntry &e) { writer->Fill(e); });
 
    bam1_t *rec = bam_init1();
    std::size_t count = 0;
 
    while (sam_read1(bamIn, hdr, rec) >= 0) {
-      FillRecord(recordPtr.get(), rec, hdr, quality_policy);
-      RAMNTupleRecord::NoteRefSpan(recordPtr->GetRefSpan());
-      RAMNTupleRecord::NotePlacement(recordPtr->GetREFID(), recordPtr->GetPOS() - 1);
-      writer->Fill(*entry);
+      RAMNTupleRecord &record = out.Record();
+      FillRecord(&record, rec, hdr, quality_policy);
+      RAMNTupleRecord::NoteRefSpan(record.GetRefSpan());
+      RAMNTupleRecord::NotePlacement(record.GetREFID(), record.GetPOS() - 1);
+      out.Add();
 
       ++count;
       if (count % 1000000 == 0)
@@ -250,6 +252,14 @@ void bamtoramntuple(const char *bamfile, const char *treefile, bool /*split*/, b
    }
 
    bam_destroy1(rec);
+   out.Finish();
+   std::vector<uint64_t> ends;
+   uint64_t row = 0;
+   for (const uint32_t n : out.TakeBlockSizes()) {
+      row += n;
+      ends.push_back(row - 1);
+   }
+   RAMNTupleRecord::SetQualBlockEnds(std::move(ends));
    writer.reset();
 
    // Region queries can only seek on a sorted file; the file records which it is.

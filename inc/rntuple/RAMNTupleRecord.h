@@ -101,8 +101,14 @@ public:
    enum EQualCompressionBits {
       kPhred33 = 1 << 14,         // Default Phred+33 quality score
       kIlluminaBinning = 1 << 15, // Illumina 8 bin compression
-      kDrop = 1 << 16             // Drop quality score
+      kDrop = 1 << 16,            // Drop quality score
+      /// Set by the writers, not a policy: with kPhred33, QUAL is not in `qual`
+      /// but in the fqzcomp block that QualityBlockReader decodes.
+      kQualInBlock = 1 << 18
    };
+
+   /// Name of the field holding the compressed quality blocks.
+   static constexpr const char *kQualBlockField = "qualblock";
 
    // Alignment data fields
    std::string qname;             // Query template NAME
@@ -131,6 +137,9 @@ public:
    /// Order of the open file; region queries seek only when sorted. Files
    /// without the field are read as sorted.
    static RAMCoordinateOrder fgOrder;
+
+   /// Row of the last record of each quality block, in order.
+   static std::vector<uint64_t> fgQualBlockEnds;
 
 public:
    RAMNTupleRecord();
@@ -200,6 +209,8 @@ public:
    uint32_t GetRefSpan() const;
    static RAMNTupleRefs *GetRnameRefs() { return fgRnameRefs.get(); }
    static RAMNTupleRefs *GetRnextRefs() { return fgRnextRefs.get(); }
+   static const std::vector<uint64_t> &GetQualBlockEnds() { return fgQualBlockEnds; }
+   static void SetQualBlockEnds(std::vector<uint64_t> ends) { fgQualBlockEnds = std::move(ends); }
 
    // File I/O
    static std::unique_ptr<ROOT::RNTupleReader>
