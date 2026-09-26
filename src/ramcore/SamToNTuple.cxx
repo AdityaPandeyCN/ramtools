@@ -160,13 +160,7 @@ void samtoramntuple_split_by_chromosome(const char *datafile, const char *output
    // input has been read, so every file is finished here.
    for (auto &[chr, cw] : writers) {
       cw.out->Finish();
-      std::vector<uint64_t> ends;
-      uint64_t row = 0;
-      for (const uint32_t n : cw.out->TakeBlockSizes()) {
-         row += n;
-         ends.push_back(row - 1);
-      }
-      RAMNTupleRecord::SetQualBlockEnds(std::move(ends));
+      RAMNTupleRecord::SetQualBlockEnds(cw.out->TakeBlockEnds());
       cw.out.reset();
       cw.writer.reset();
 
@@ -355,7 +349,7 @@ struct Progress {
    bool failed = false; ///< A worker or the reader gave up; everyone stops.
    FileOrder order;
    size_t records = 0;
-   std::vector<uint64_t> qual_block_ends; ///< Last row of each quality block.
+   std::vector<uint64_t> qual_block_ends;
    std::vector<std::pair<std::string, std::string>> late_headers;
 
    void Fail()
@@ -477,7 +471,7 @@ void WorkerMain(BlockQueue &queue, Progress &progress, const std::shared_ptr<ROO
          ProcessBlock(block, out, quality_policy, rname_cache, rnext_cache, sam_record, records, late_headers);
       // Quality blocks end with the input block, whose clusters are committed as a unit.
       out.Finish();
-      const std::vector<uint32_t> quality_blocks = out.TakeBlockSizes();
+      const std::vector<uint64_t> block_ends = out.TakeBlockEnds();
       ctx->FlushCluster();
 
       std::unique_lock<std::mutex> lock(progress.mutex);
@@ -486,11 +480,8 @@ void WorkerMain(BlockQueue &queue, Progress &progress, const std::shared_ptr<ROO
          return;
       ctx->CommitStagedClusters();
       progress.order.Add(order);
-      uint64_t row = progress.records;
-      for (const uint32_t n : quality_blocks) {
-         row += n;
-         progress.qual_block_ends.push_back(row - 1);
-      }
+      for (const uint64_t end : block_ends)
+         progress.qual_block_ends.push_back(progress.records + end);
       progress.records += records;
       progress.late_headers.insert(progress.late_headers.end(), late_headers.begin(), late_headers.end());
       progress.next_seq++;

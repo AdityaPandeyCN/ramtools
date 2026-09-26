@@ -1,9 +1,8 @@
 #ifndef RAMCORE_QUALITYBLOCKS_H
 #define RAMCORE_QUALITYBLOCKS_H
 
-// Quality scores compressed with fqzcomp, the CRAM 3.1 quality codec, in blocks
-// of records. The last record of each block carries the compressed block in the
-// "qualblock" field; METADATA lists the row each block ends on.
+// Quality scores compressed with fqzcomp in blocks of records. The last record
+// of a block carries it in "qualblock"; METADATA lists the row each block ends on.
 
 #include "rntuple/RAMNTupleRecord.h"
 
@@ -23,14 +22,10 @@
 #include <string>
 #include <vector>
 
-/// Records per quality block. Larger blocks compress better; a region dump
-/// decodes whole blocks.
 constexpr std::size_t kQualityBlockRecords = 25000;
 
-/// Fills records through two entries, holding the last one back, so that the
-/// record that ends a block can carry the block. Qualities stored as Phred+33
-/// text go into the block; "*", any other policy, or text outside SAM's
-/// '!'..'~' stays in the record.
+/// Holds one record back so the record that ends a block can carry it. Only
+/// Phred+33 qualities in SAM's '!'..'~' go into a block; the rest stay in the record.
 class QualityBlockWriter {
 public:
    using FillFn = std::function<void(ROOT::REntry &)>;
@@ -38,15 +33,13 @@ public:
    QualityBlockWriter(std::unique_ptr<ROOT::REntry> first, std::unique_ptr<ROOT::REntry> second, FillFn fill,
                       std::size_t block_records = kQualityBlockRecords);
 
-   /// The record to set for the next input record.
    RAMNTupleRecord &Record() { return *m_records.at(m_current); }
-   /// Takes the record set through Record().
    void Add();
-   /// Ends the current block. Call it at the end of the input and wherever the
-   /// rows written so far must be complete, such as before a cluster is flushed.
+   /// Ends the current block; needed before the written rows are flushed.
    void Finish();
-   /// Records in each block finished since the last TakeBlockSizes(), in order.
-   std::vector<uint32_t> TakeBlockSizes();
+   /// Last row of each block finished since the previous call, counted from the
+   /// first row after it.
+   std::vector<uint64_t> TakeBlockEnds();
 
 private:
    std::array<std::unique_ptr<ROOT::REntry>, 2> m_entries;
@@ -57,16 +50,15 @@ private:
    std::size_t m_current = 0;
    bool m_pending = false;
    std::size_t m_rows = 0;
+   uint64_t m_rowsSinceTake = 0;
    std::string m_quals;
    std::vector<uint32_t> m_lengths;
    std::vector<uint32_t> m_flags;
-   std::vector<uint32_t> m_blockSizes;
+   std::vector<uint64_t> m_blockEnds;
 };
 
-/// Gives back QUAL as SAM text for records read from a RAM file, decoding one
-/// block at a time. Needs RAMNTupleRecord::OpenRAMFile() to have loaded the
-/// file's metadata. Reading consecutive blocks decodes the next ones on other
-/// threads.
+/// Returns QUAL as SAM text, decoding one block at a time and decoding ahead on
+/// other threads during a scan. Needs the metadata loaded by OpenRAMFile().
 class QualityBlockReader {
 public:
    explicit QualityBlockReader(ROOT::RNTupleReader &reader);
@@ -75,8 +67,8 @@ public:
 
 private:
    struct Packed {
-      std::vector<std::size_t> slots; ///< Per row of the block: its string, if in the block.
-      std::size_t records = 0;        ///< Qualities in the block.
+      std::vector<std::size_t> slots; ///< Per row: index of its quality in the block.
+      std::size_t records = 0;
       std::vector<char> bytes;
    };
    struct Block {
@@ -87,9 +79,8 @@ private:
    };
    static constexpr std::size_t kNoBlock = static_cast<std::size_t>(-1);
 
-   /// Reads a block's flags and bytes; views are not thread-safe, so the caller's thread does this.
+   /// Views are not thread-safe, so only Decode() runs on other threads.
    Packed Read(std::size_t block);
-   /// Decodes a block; safe on any thread.
    static Block Decode(Packed packed);
    void Load(std::size_t block);
 

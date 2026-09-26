@@ -254,13 +254,7 @@ void bamtoramntuple(const char *bamfile, const char *treefile, bool /*split*/, b
 
    bam_destroy1(rec);
    out.Finish();
-   std::vector<uint64_t> ends;
-   uint64_t row = 0;
-   for (const uint32_t n : out.TakeBlockSizes()) {
-      row += n;
-      ends.push_back(row - 1);
-   }
-   RAMNTupleRecord::SetQualBlockEnds(std::move(ends));
+   RAMNTupleRecord::SetQualBlockEnds(out.TakeBlockEnds());
    writer.reset();
 
    // Region queries can only seek on a sorted file; the file records which it is.

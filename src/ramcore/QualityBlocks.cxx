@@ -48,8 +48,7 @@ QualityBlockWriter::QualityBlockWriter(std::unique_ptr<ROOT::REntry> first, std:
 void QualityBlockWriter::Add()
 {
    RAMNTupleRecord &rec = *m_records.at(m_current);
-   // fqzcomp takes no empty strings, so "*" stays in the record like any other
-   // quality that cannot go into the block.
+   // fqzcomp takes no empty strings, so "*" stays in the record.
    if (rec.TestBit(RAMNTupleRecord::kPhred33) && rec.qual != "*" && !rec.qual.empty() && IsSamQuality(rec.qual)) {
       for (const char c : rec.qual)
          m_quals.push_back(static_cast<char>(c - '!'));
@@ -58,7 +57,6 @@ void QualityBlockWriter::Add()
       rec.qual.clear();
       rec.SetBit(RAMNTupleRecord::kQualInBlock);
    } else {
-      // The record object is reused; a bit left from the last record would be wrong.
       rec.compression_flags &= ~static_cast<uint32_t>(RAMNTupleRecord::kQualInBlock);
    }
    m_rows++;
@@ -93,7 +91,8 @@ void QualityBlockWriter::Finish()
    m_fill(*m_entries.at(last));
    m_blobs.at(last)->clear();
 
-   m_blockSizes.push_back(static_cast<uint32_t>(m_rows));
+   m_rowsSinceTake += m_rows;
+   m_blockEnds.push_back(m_rowsSinceTake - 1);
    m_pending = false;
    m_rows = 0;
    m_quals.clear();
@@ -101,9 +100,10 @@ void QualityBlockWriter::Finish()
    m_flags.clear();
 }
 
-std::vector<uint32_t> QualityBlockWriter::TakeBlockSizes()
+std::vector<uint64_t> QualityBlockWriter::TakeBlockEnds()
 {
-   return std::exchange(m_blockSizes, {});
+   m_rowsSinceTake = 0;
+   return std::exchange(m_blockEnds, {});
 }
 
 QualityBlockReader::QualityBlockReader(ROOT::RNTupleReader &reader)
@@ -136,7 +136,6 @@ QualityBlockReader::Packed QualityBlockReader::Read(std::size_t block)
    const auto &ends = RAMNTupleRecord::GetQualBlockEnds();
    const uint64_t first = block == 0 ? 0 : ends[block - 1] + 1;
    Packed p;
-   // The block holds the qualities of the records flagged kQualInBlock, in row order.
    p.slots.assign(static_cast<std::size_t>(ends[block] - first + 1), 0);
    for (std::size_t i = 0; i < p.slots.size(); i++) {
       if (m_flagsView(first + i) & RAMNTupleRecord::kQualInBlock)
@@ -177,10 +176,7 @@ QualityBlockReader::Block QualityBlockReader::Decode(Packed packed)
 void QualityBlockReader::Load(std::size_t block)
 {
    const auto &ends = RAMNTupleRecord::GetQualBlockEnds();
-   // Moving on to the next block means a scan: decode the blocks after it on
-   // other threads while this one is used, one more block for each block the
-   // scan has gone on, so a short scan wastes little. A lookup of one block
-   // starts nothing.
+   // Read ahead one block more for each consecutive block, so random lookups start nothing.
    m_run = (m_block != kNoBlock && block == m_block + 1) ? m_run + 1 : 0;
 
    auto ahead = m_ahead.find(block);

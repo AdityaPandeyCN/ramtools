@@ -103,12 +103,9 @@ public:
       kPhred33 = 1 << 14,         // Default Phred+33 quality score
       kIlluminaBinning = 1 << 15, // Illumina 8 bin compression
       kDrop = 1 << 16,            // Drop quality score
-      /// Set by the writers, not a policy: with kPhred33, QUAL is not in `qual`
-      /// but in the fqzcomp block that QualityBlockReader decodes.
-      kQualInBlock = 1 << 18
+      kQualInBlock = 1 << 18      // QUAL is in the fqzcomp block, not in `qual`
    };
 
-   /// Name of the field holding the compressed quality blocks.
    static constexpr const char *kQualBlockField = "qualblock";
 
    // Alignment data fields
@@ -139,7 +136,7 @@ public:
    /// without the field are read as sorted.
    static RAMCoordinateOrder fgOrder;
 
-   /// Row of the last record of each quality block, in order.
+   /// Last row of each quality block.
    static std::vector<uint64_t> fgQualBlockEnds;
 
 public:

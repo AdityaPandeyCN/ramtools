@@ -1,7 +1,5 @@
-# Provides the target ramtools::fqzcomp: the fqzcomp quality codec of htscodecs,
-# the library behind CRAM 3.1. The system library is used when pkg-config finds
-# it (libhtscodecs-dev on Debian and Ubuntu); otherwise the two source files the
-# codec needs are built from a pinned release.
+# ramtools::fqzcomp: the system htscodecs if pkg-config finds it, otherwise the
+# two source files fqzcomp needs, built from a pinned release.
 
 pkg_check_modules(htscodecs QUIET IMPORTED_TARGET htscodecs)
 
