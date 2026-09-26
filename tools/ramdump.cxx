@@ -6,8 +6,8 @@
 #include "ramcore/RAMNTupleView.h"
 #include "rntuple/RAMNTupleRecord.h"
 
-#include <ROOT/RNTupleTypes.hxx>
 #include <ROOT/RNTupleReader.hxx>
+#include <ROOT/RNTupleTypes.hxx>
 #include <Rtypes.h>
 #include <TFile.h>
 #include <TList.h>
