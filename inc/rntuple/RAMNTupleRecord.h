@@ -173,8 +173,8 @@ public:
    std::string GetCIGAR() const;
    const std::string &GetRNEXT() const;
    int32_t GetREFNEXT() const { return refnext; }
-   int32_t GetPNEXT() const;
-   int32_t GetTLEN() const;
+   [[nodiscard]] int32_t GetPNEXT() const;
+   [[nodiscard]] int32_t GetTLEN() const;
    std::string GetSEQ() const;
    std::string GetQUAL() const;
    const std::vector<std::string> &GetTags() const { return tags; }
