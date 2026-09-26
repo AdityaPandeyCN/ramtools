@@ -55,6 +55,7 @@ ROOT_STANDARD_LIBRARY_PACKAGE(ramcore
         src/ramcore/RAMNTupleView.cxx
         src/ramcore/BamtoNTuple.cxx
         src/ramcore/QualityBlocks.cxx
+        src/ramcore/SeqBlocks.cxx
         src/ramcore/TagColumns.cxx
         src/ramcore/MateNames.cxx
     LINKDEF

@@ -2,8 +2,11 @@
 #define RAMCORE_QUALITYBLOCKS_H
 
 // Quality scores compressed with fqzcomp in blocks of records. The last record
-// of a block carries it in "qualblock"; METADATA lists the row each block ends on.
+// of a block carries it in "qualblock", and the block's SEQ (SeqBlocks.h) in
+// "seqblock"; METADATA lists the row each block ends on.
 
+#include "ramcore/BlockReadAhead.h"
+#include "ramcore/SeqBlocks.h"
 #include "rntuple/RAMNTupleRecord.h"
 
 #include <ROOT/REntry.hxx>
@@ -15,8 +18,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
-#include <future>
-#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -24,8 +25,9 @@
 
 constexpr std::size_t kQualityBlockRecords = 25000;
 
-/// Holds one record back so the record that ends a block can carry it. Only
-/// Phred+33 qualities in SAM's '!'..'~' go into a block; the rest stay in the record.
+/// Holds one record back so the record that ends a block can carry the block's
+/// qualities and SEQ. Only Phred+33 qualities in SAM's '!'..'~' go into a
+/// block, and only SEQ the model codes; the rest stay in the record.
 class QualityBlockWriter {
 public:
    using FillFn = std::function<void(ROOT::REntry &)>;
@@ -47,6 +49,7 @@ private:
    std::array<std::unique_ptr<ROOT::REntry>, 2> m_entries;
    std::array<RAMNTupleRecord *, 2> m_records{};
    std::array<std::vector<std::uint8_t> *, 2> m_blobs{};
+   std::array<std::vector<std::uint8_t> *, 2> m_seqBlobs{};
    FillFn m_fill;
    std::size_t m_blockRecords;
    std::size_t m_current = 0;
@@ -57,6 +60,7 @@ private:
    std::vector<uint32_t> m_lengths;
    std::vector<uint32_t> m_flags;
    std::vector<uint64_t> m_blockEnds;
+   SeqBlockEncoder m_seqs;
 };
 
 /// Returns QUAL as SAM text, decoding one block at a time and decoding ahead on
@@ -79,21 +83,13 @@ private:
       std::vector<int> lengths;
       std::vector<std::size_t> offsets;
    };
-   static constexpr std::size_t kNoBlock = static_cast<std::size_t>(-1);
 
-   /// Views are not thread-safe, so only Decode() runs on other threads.
    Packed Read(std::size_t block);
    static Block Decode(Packed packed);
-   void Load(std::size_t block);
 
    ROOT::RNTupleView<uint32_t> m_flagsView;
    std::optional<ROOT::RNTupleView<std::vector<std::uint8_t>>> m_view;
-   std::size_t m_readAhead;
-   std::size_t m_block = kNoBlock;
-   std::size_t m_run = 0; ///< Consecutive blocks read so far.
-   uint64_t m_firstRow = 0;
-   Block m_current;
-   std::map<std::size_t, std::future<Block>> m_ahead;
+   BlockReadAhead<Packed, Block> m_blocks{&Decode};
 };
 
 #endif // RAMCORE_QUALITYBLOCKS_H

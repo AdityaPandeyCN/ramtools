@@ -450,6 +450,7 @@ std::unique_ptr<RNTupleModel> RAMNTupleRecord::MakeModel()
    model->MakeField<RAMNTupleRecord>("record");
    model->MakeField<std::vector<std::uint8_t>>(kQualBlockField);
    model->MakeField<std::uint32_t>(kQnameRefField);
+   model->MakeField<std::vector<std::uint8_t>>(kSeqBlockField);
 
    return model;
 }

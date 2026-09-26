@@ -109,12 +109,14 @@ public:
 
    static constexpr const char *kQualBlockField = "qualblock";
    static constexpr const char *kQnameRefField = "qnameref";
+   static constexpr const char *kSeqBlockField = "seqblock";
 
    // Sequence storage. SetSEQ sets this bit on every record it writes; records
    // from files written before it existed lack it and hold the 4-bit packing
    // that GetSEQ still decodes.
    enum ESeqEncodingBits {
-      kSeqRaw = 1 << 17 // SEQ stored as uppercase IUPAC text, not 4-bit packed
+      kSeqRaw = 1 << 17,    // SEQ stored as uppercase IUPAC text, not 4-bit packed
+      kSeqInBlock = 1 << 20 // SEQ is in the seqblock of its block, not in `seq`
    };
 
    // Alignment data fields
@@ -145,7 +147,7 @@ public:
    /// without the field are read as sorted.
    static RAMCoordinateOrder fgOrder;
 
-   /// Last row of each quality block.
+   /// Last row of each record block; qualities and SEQ share the blocks.
    static std::vector<uint64_t> fgQualBlockEnds;
 
 public:
@@ -231,11 +233,12 @@ public:
    // RNTuple model creation
    static std::unique_ptr<ROOT::RNTupleModel> MakeModel();
 
-   /// Replaces the quality mode. kSeqRaw describes how `seq` is already stored,
-   /// so it stays as SetSEQ left it: clearing it would make GetSEQ unpack text.
+   /// Replaces the quality mode. The SEQ bits describe how `seq` is already
+   /// stored, so they stay as they are: clearing kSeqRaw would make GetSEQ unpack text.
    void SetCompressionMode(uint32_t flags)
    {
-      compression_flags = (flags & ~static_cast<uint32_t>(kSeqRaw)) | (compression_flags & kSeqRaw);
+      constexpr auto kSeqBits = static_cast<uint32_t>(kSeqRaw | kSeqInBlock);
+      compression_flags = (flags & ~kSeqBits) | (compression_flags & kSeqBits);
    }
 
 private:

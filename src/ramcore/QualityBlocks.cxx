@@ -10,12 +10,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
-#include <future>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <utility>
 #include <vector>
 
@@ -42,6 +40,7 @@ QualityBlockWriter::QualityBlockWriter(std::unique_ptr<ROOT::REntry> first, std:
    for (std::size_t i = 0; i < 2; i++) {
       m_records.at(i) = m_entries.at(i)->GetPtr<RAMNTupleRecord>("record").get();
       m_blobs.at(i) = m_entries.at(i)->GetPtr<std::vector<std::uint8_t>>(RAMNTupleRecord::kQualBlockField).get();
+      m_seqBlobs.at(i) = m_entries.at(i)->GetPtr<std::vector<std::uint8_t>>(RAMNTupleRecord::kSeqBlockField).get();
    }
 }
 
@@ -59,6 +58,7 @@ void QualityBlockWriter::Add()
    } else {
       rec.compression_flags &= ~static_cast<uint32_t>(RAMNTupleRecord::kQualInBlock);
    }
+   m_seqs.Add(rec);
    m_rows++;
 
    if (m_pending)
@@ -88,8 +88,10 @@ void QualityBlockWriter::Finish()
       m_blobs.at(last)->assign(bytes.begin(), bytes.end());
       free(packed); // NOLINT(cppcoreguidelines-owning-memory,cppcoreguidelines-no-malloc): allocated by htscodecs
    }
+   *m_seqBlobs.at(last) = m_seqs.Finish();
    m_fill(*m_entries.at(last));
    m_blobs.at(last)->clear();
+   m_seqBlobs.at(last)->clear();
 
    m_rowsSinceTake += m_rows;
    m_blockEnds.push_back(m_rowsSinceTake - 1);
@@ -107,8 +109,7 @@ std::vector<uint64_t> QualityBlockWriter::TakeBlockEnds()
 }
 
 QualityBlockReader::QualityBlockReader(ROOT::RNTupleReader &reader)
-   : m_flagsView(reader.GetView<uint32_t>("record.compression_flags")),
-     m_readAhead(std::max(1U, std::thread::hardware_concurrency()))
+   : m_flagsView(reader.GetView<uint32_t>("record.compression_flags"))
 {
    if (reader.GetDescriptor().FindFieldId(RAMNTupleRecord::kQualBlockField) != ROOT::kInvalidDescriptorId)
       m_view.emplace(reader.GetView<std::vector<std::uint8_t>>(RAMNTupleRecord::kQualBlockField));
@@ -119,16 +120,12 @@ std::string QualityBlockReader::Get(const RAMNTupleRecord &rec, ROOT::NTupleSize
    if (!rec.TestBit(RAMNTupleRecord::kQualInBlock))
       return rec.GetQUAL();
 
-   const auto &ends = RAMNTupleRecord::GetQualBlockEnds();
-   const auto it = std::lower_bound(ends.begin(), ends.end(), static_cast<uint64_t>(row));
-   if (it == ends.end() || !m_view)
+   uint64_t first = 0;
+   const Block *block = m_view ? m_blocks.Find(row, first, [this](std::size_t b) { return Read(b); }) : nullptr;
+   if (!block)
       throw std::runtime_error("record " + std::to_string(row) + " has no quality block");
-   const auto block = static_cast<std::size_t>(it - ends.begin());
-   if (block != m_block)
-      Load(block);
-
-   const std::size_t slot = m_current.slots[static_cast<std::size_t>(row - m_firstRow)];
-   return m_current.quals.substr(m_current.offsets[slot], static_cast<std::size_t>(m_current.lengths[slot]));
+   const std::size_t slot = block->slots[static_cast<std::size_t>(row - first)];
+   return block->quals.substr(block->offsets[slot], static_cast<std::size_t>(block->lengths[slot]));
 }
 
 QualityBlockReader::Packed QualityBlockReader::Read(std::size_t block)
@@ -171,27 +168,4 @@ QualityBlockReader::Block QualityBlockReader::Decode(Packed packed)
       offset += static_cast<std::size_t>(b.lengths[i]);
    }
    return b;
-}
-
-void QualityBlockReader::Load(std::size_t block)
-{
-   const auto &ends = RAMNTupleRecord::GetQualBlockEnds();
-   // Read ahead one block more for each consecutive block, so random lookups start nothing.
-   m_run = (m_block != kNoBlock && block == m_block + 1) ? m_run + 1 : 0;
-
-   auto ahead = m_ahead.find(block);
-   if (ahead != m_ahead.end()) {
-      m_current = ahead->second.get();
-      m_ahead.erase(ahead);
-   } else {
-      m_current = Decode(Read(block));
-   }
-   m_block = block;
-   m_firstRow = block == 0 ? 0 : ends[block - 1] + 1;
-
-   const std::size_t depth = std::min(m_run, m_readAhead);
-   for (std::size_t next = block + 1; next < ends.size() && next <= block + depth; next++) {
-      if (m_ahead.count(next) == 0)
-         m_ahead.emplace(next, std::async(std::launch::async, Decode, Read(next)));
-   }
 }

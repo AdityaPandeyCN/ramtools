@@ -33,6 +33,7 @@ add_ramcore_test(parallel_conversion_test parallel_conversion_test.cxx)
 add_ramcore_test(quality_blocks_test quality_blocks_test.cxx)
 add_ramcore_test(tag_columns_test tag_columns_test.cxx)
 add_ramcore_test(mate_names_test mate_names_test.cxx)
+add_ramcore_test(seq_blocks_test seq_blocks_test.cxx)
 
 if(TARGET samtoramntuple)
     add_test(NAME samtoramntuple_rejects_bad_compression COMMAND samtoramntuple in.sam -compression asd)
@@ -58,6 +59,6 @@ if(TARGET ramdump)
 endif()
 
 install(TARGETS ramcoretests chromosome_split_test bam_conversion parallel_conversion_test quality_blocks_test
-    tag_columns_test mate_names_test
+    tag_columns_test mate_names_test seq_blocks_test
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )

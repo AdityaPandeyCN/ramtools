@@ -5,6 +5,7 @@
 #include "ramcore/MateNames.h"
 #include "ramcore/QualityBlocks.h"
 #include "ramcore/RAMNTupleView.h"
+#include "ramcore/SeqBlocks.h"
 #include "ramcore/TagColumns.h"
 #include "rntuple/RAMNTupleRecord.h"
 
@@ -86,7 +87,7 @@ void WriteHeader(const std::string &file, SamWriter &out)
    }
 }
 
-void WriteRecord(const RAMNTupleRecord &rec, const std::string &qname, const std::string &qual,
+void WriteRecord(const RAMNTupleRecord &rec, const std::string &qname, const std::string &seq, const std::string &qual,
                  const std::vector<std::string> &tags, SamWriter &out)
 {
    out.Str(qname);
@@ -107,7 +108,7 @@ void WriteRecord(const RAMNTupleRecord &rec, const std::string &qname, const std
    out.Tab();
    out.Int(rec.GetTLEN());
    out.Tab();
-   out.Str(rec.GetSEQ());
+   out.Str(seq);
    out.Tab();
    out.Str(qual);
 
@@ -233,6 +234,7 @@ int main(int argc, char *argv[])
    }
 
    auto view = reader->GetView<RAMNTupleRecord>("record");
+   SeqBlockReader seqs(*reader);
    QualityBlockReader quals(*reader);
    TagReader tags(*reader);
    MateNameReader names(*reader);
@@ -246,7 +248,7 @@ int main(int argc, char *argv[])
       kept++;
       if (!countOnly) {
          const auto r = static_cast<ROOT::NTupleSize_t>(row);
-         WriteRecord(rec, names.Get(rec, r), quals.Get(rec, r), tags.Get(rec, r), writer);
+         WriteRecord(rec, names.Get(rec, r), seqs.Get(rec, r), quals.Get(rec, r), tags.Get(rec, r), writer);
       }
    });
 

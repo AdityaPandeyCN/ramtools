@@ -19,6 +19,7 @@
 #include "ramcore/RAMNTupleView.h"
 #include "ramcore/SamParser.h"
 #include "ramcore/SamToNTuple.h"
+#include "ramcore/SeqBlocks.h"
 #include "rntuple/RAMNTupleRecord.h"
 namespace {
 
@@ -131,7 +132,7 @@ TEST_F(ramcoreTest, RNTupleDataIntegrity)
    const char *rntupleFile = "test_rntuple.root";
    samtoramntuple(/*datafile=*/"samexample.sam", rntupleFile, /*compression_algorithm=*/505, /*quality_policy=*/0);
 
-   auto reader = ROOT::RNTupleReader::Open("RAM", rntupleFile);
+   auto reader = RAMNTupleRecord::OpenRAMFile(rntupleFile);
    ASSERT_NE(reader, nullptr);
 
    auto viewPos = reader->GetView<int>("record.pos");
@@ -141,17 +142,20 @@ TEST_F(ramcoreTest, RNTupleDataIntegrity)
    ASSERT_GT(reader->GetNEntries(), 0);
 
    int firstPos = viewPos(0);
-   std::string firstSeq = viewSeq(0);
-
    EXPECT_GT(firstPos, 0);
 
-   // The column holds the bases themselves, with no length prefix: the string
-   // column already records the length.
+   // A, C, G, T and N reads go into the SEQ block and leave the column empty.
    EXPECT_TRUE(viewFlags(0) & RAMNTupleRecord::kSeqRaw);
+   EXPECT_TRUE(viewFlags(0) & RAMNTupleRecord::kSeqInBlock);
+   EXPECT_TRUE(viewSeq(0).empty()) << viewSeq(0);
+
+   auto view = reader->GetView<RAMNTupleRecord>("record");
+   SeqBlockReader seqs(*reader);
+   const std::string firstSeq = seqs.Get(view(0), 0);
    EXPECT_EQ(firstSeq.size(), 36U);
    EXPECT_EQ(firstSeq.find_first_not_of("ACGTN"), std::string::npos) << firstSeq;
 
-   std::cout << "[   INFO   ] Data Integrity - Pos: " << firstPos << ", Stored Seq: " << firstSeq << std::endl;
+   std::cout << "[   INFO   ] Data Integrity - Pos: " << firstPos << ", Seq: " << firstSeq << std::endl;
 }
 
 TEST_F(ramcoreTest, RNTupleViewCigarOverlap)
@@ -725,12 +729,8 @@ TEST_F(ramcoreTest, MateFieldsReadBackUnchanged)
    };
    const int32_t max = std::numeric_limits<int32_t>::max();
    const std::vector<Case> cases = {
-      {100, "76M", 300, 275, true, true},
-      {300, "76M", 100, -275, true, true},
-      {100, "46M30S", 100, 46, true, true},
-      {100, "*", 100, 0, true, true},
-      {100, "76M", 5000, 0, false, false},
-      {1, "10M", max, -max, true, false},
+      {100, "76M", 300, 275, true, true}, {300, "76M", 100, -275, true, true}, {100, "46M30S", 100, 46, true, true},
+      {100, "*", 100, 0, true, true},     {100, "76M", 5000, 0, false, false}, {1, "10M", max, -max, true, false},
       {max, "10M", 1, max, true, false},
    };
    RAMNTupleRecord rec; // reused, as the converters do

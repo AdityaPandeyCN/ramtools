@@ -642,6 +642,7 @@ bool samtoramntuple(const char *datafile, const char *treefile, int compression_
    model->MakeField<RAMNTupleRecord>("record");
    model->MakeField<std::vector<std::uint8_t>>(RAMNTupleRecord::kQualBlockField);
    model->MakeField<std::uint32_t>(RAMNTupleRecord::kQnameRefField);
+   model->MakeField<std::vector<std::uint8_t>>(RAMNTupleRecord::kSeqBlockField);
    const std::vector<TagColumn> tag_columns = SampleTags(std::string_view(first.data.data(), first.data.size()));
    AddTagFields(*model, tag_columns);
 

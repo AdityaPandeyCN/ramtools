@@ -3,6 +3,8 @@
 #include "generate_sam_benchmark.h"
 #include "ramcore/RAMNTupleView.h"
 #include "ramcore/SamToNTuple.h"
+#include "ramcore/SeqBlocks.h"
+#include "rntuple/RAMNTupleRecord.h"
 
 #include <gtest/gtest.h>
 
@@ -11,6 +13,7 @@
 #include <htslib/sam.h>
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -258,6 +261,25 @@ TEST_F(BamToNTupleTest, RichBAMCoversAllTagTypes)
    auto reader = ROOT::RNTupleReader::Open("RAM", "test_rich.ram");
    ASSERT_NE(reader, nullptr);
    EXPECT_EQ(reader->GetNEntries(), 1005);
+}
+
+TEST_F(BamToNTupleTest, SeqComesBackExactly)
+{
+   GenerateRichBAMFile(/*bam_path=*/"test_rich.bam");
+
+   bamtoramntuple("test_rich.bam", "test_rich.ram", false, true, 505, 0U);
+
+   auto reader = RAMNTupleRecord::OpenRAMFile("test_rich.ram");
+   ASSERT_NE(reader, nullptr);
+   auto view = reader->GetView<RAMNTupleRecord>("record");
+   SeqBlockReader seqs(*reader);
+   const std::array<const char *, 4> first = {"ACGTACGTACGT", "NNNNNN", "ACGTACGT", "TTTTGGGG"};
+   for (std::size_t i = 0; i < first.size(); i++)
+      EXPECT_EQ(seqs.Get(view(i), i), first.at(i)) << "row " << i;
+   for (auto i : reader->GetEntryRange()) {
+      if (i >= first.size())
+         EXPECT_EQ(seqs.Get(view(i), i), "ACGT") << "row " << i;
+   }
 }
 
 TEST_F(BamToNTupleTest, InvalidFileReturnsGracefully)

@@ -1,7 +1,9 @@
 // Many small blocks on several threads must equal one block on one thread.
 #include "ramcore/MateNames.h"
+#include "ramcore/QualityBlocks.h"
 #include "ramcore/RAMNTupleView.h"
 #include "ramcore/SamToNTuple.h"
+#include "ramcore/SeqBlocks.h"
 #include "ramcore/TagColumns.h"
 #include "rntuple/RAMNTupleRecord.h"
 #include <gtest/gtest.h>
@@ -82,12 +84,14 @@ Dump ReadBack(const char *file)
    auto view = reader->GetView<RAMNTupleRecord>("record");
    TagReader tags(*reader);
    MateNameReader names(*reader);
+   SeqBlockReader seqs(*reader);
+   QualityBlockReader quals(*reader);
    for (auto i : reader->GetEntryRange()) {
       const RAMNTupleRecord &r = view(i);
       std::string line = names.Get(r, i) + "\t" + std::to_string(r.GetFLAG()) + "\t" + r.GetRNAME() + "\t" +
                          std::to_string(r.GetPOS()) + "\t" + std::to_string(r.GetMAPQ()) + "\t" + r.GetCIGAR() + "\t" +
                          r.GetRNEXT() + "\t" + std::to_string(r.GetPNEXT()) + "\t" + std::to_string(r.GetTLEN()) +
-                         "\t" + r.GetSEQ() + "\t" + r.GetQUAL();
+                         "\t" + seqs.Get(r, i) + "\t" + quals.Get(r, i);
       for (const auto &t : tags.Get(r, i))
          line += "\t" + t;
       d.lines.push_back(line);
