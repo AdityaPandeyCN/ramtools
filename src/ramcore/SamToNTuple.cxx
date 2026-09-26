@@ -1,4 +1,5 @@
 #include "ramcore/SamToNTuple.h"
+#include "ramcore/MateNames.h"
 #include "ramcore/QualityBlocks.h"
 #include "ramcore/SamParser.h"
 #include "ramcore/TagColumns.h"
@@ -129,6 +130,7 @@ struct ChromosomeWriter {
    std::unique_ptr<ROOT::RNTupleWriter> writer{};
    std::unique_ptr<QualityBlockWriter> out;
    TagWriter tags;
+   MateNameWriter names;
    int64_t rows = 0;
    int32_t last_pos = -1;
    bool sorted = true;
@@ -195,6 +197,7 @@ void samtoramntuple_split_by_chromosome(const char *datafile, const char *output
 
       RAMNTupleRecord::NoteRefSpan(rec.GetRefSpan());
       cw.tags.Move(rec, cw.out->Entry());
+      cw.names.Move(rec, cw.out->Entry());
       cw.out->Add();
       cw.rows++;
 
@@ -455,8 +458,9 @@ public:
    ~CloseQueueOnExit() { m_queue.Abort(); }
 };
 
-BlockOrder ProcessBlock(Block &block, QualityBlockWriter &out, TagWriter &tags, uint32_t quality_policy,
-                        RefCache &rname_cache, RefCache &rnext_cache, ramcore::SamRecord &sam_record, size_t &records,
+BlockOrder ProcessBlock(Block &block, QualityBlockWriter &out, TagWriter &tags, MateNameWriter &names,
+                        uint32_t quality_policy, RefCache &rname_cache, RefCache &rnext_cache,
+                        ramcore::SamRecord &sam_record, size_t &records,
                         std::vector<std::pair<std::string, std::string>> &late_headers)
 {
    BlockOrder order;
@@ -503,6 +507,7 @@ BlockOrder ProcessBlock(Block &block, QualityBlockWriter &out, TagWriter &tags, 
       order.max_span = std::max(order.max_span, rec.GetRefSpan());
       order.Note(rec.refid, rec.pos);
       tags.Move(rec, out.Entry());
+      names.Move(rec, out.Entry());
       out.Add();
       records++;
    }
@@ -516,6 +521,7 @@ void WorkerMain(BlockQueue &queue, Progress &progress, const std::shared_ptr<ROO
 
    QualityBlockWriter out(ctx->CreateEntry(), ctx->CreateEntry(), [&ctx](ROOT::REntry &e) { ctx->Fill(e); });
    TagWriter tags(tag_columns);
+   MateNameWriter names;
    RefCache rname_cache;
    RefCache rnext_cache;
    ramcore::SamRecord sam_record;
@@ -524,8 +530,10 @@ void WorkerMain(BlockQueue &queue, Progress &progress, const std::shared_ptr<ROO
    while (queue.Pop(block)) {
       size_t records = 0;
       std::vector<std::pair<std::string, std::string>> late_headers;
-      const BlockOrder order =
-         ProcessBlock(block, out, tags, quality_policy, rname_cache, rnext_cache, sam_record, records, late_headers);
+      // Another worker's blocks may come between this worker's blocks in the file.
+      names.Reset();
+      const BlockOrder order = ProcessBlock(block, out, tags, names, quality_policy, rname_cache, rnext_cache,
+                                            sam_record, records, late_headers);
       // Quality blocks end with the input block, whose clusters are committed as a unit.
       out.Finish();
       const std::vector<uint64_t> block_ends = out.TakeBlockEnds();
@@ -633,6 +641,7 @@ bool samtoramntuple(const char *datafile, const char *treefile, int compression_
    auto model = ROOT::RNTupleModel::CreateBare();
    model->MakeField<RAMNTupleRecord>("record");
    model->MakeField<std::vector<std::uint8_t>>(RAMNTupleRecord::kQualBlockField);
+   model->MakeField<std::uint32_t>(RAMNTupleRecord::kQnameRefField);
    const std::vector<TagColumn> tag_columns = SampleTags(std::string_view(first.data.data(), first.data.size()));
    AddTagFields(*model, tag_columns);
 

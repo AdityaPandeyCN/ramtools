@@ -1,4 +1,5 @@
 #include "ramcore/BamtoNTuple.h"
+#include "ramcore/MateNames.h"
 #include "ramcore/QualityBlocks.h"
 #include "ramcore/TagColumns.h"
 
@@ -261,6 +262,7 @@ void bamtoramntuple(const char *bamfile, const char *treefile, bool /*split*/, b
    QualityBlockWriter out(writer->GetModel().CreateEntry(), writer->GetModel().CreateEntry(),
                           [&writer](ROOT::REntry &e) { writer->Fill(e); });
    TagWriter tags(tag_columns);
+   MateNameWriter names;
 
    bam1_t *rec = bam_init1();
    std::size_t count = 0;
@@ -271,6 +273,7 @@ void bamtoramntuple(const char *bamfile, const char *treefile, bool /*split*/, b
       RAMNTupleRecord::NoteRefSpan(record.GetRefSpan());
       RAMNTupleRecord::NotePlacement(record.GetREFID(), record.GetPOS() - 1);
       tags.Move(record, out.Entry());
+      names.Move(record, out.Entry());
       out.Add();
 
       ++count;

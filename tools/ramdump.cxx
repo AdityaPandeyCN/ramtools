@@ -2,6 +2,7 @@
 // `ramdump -h file.ram` should reproduce the SAM the file was built from, and
 // `ramdump -c region` should agree with `samtools view -c region`.
 
+#include "ramcore/MateNames.h"
 #include "ramcore/QualityBlocks.h"
 #include "ramcore/RAMNTupleView.h"
 #include "ramcore/TagColumns.h"
@@ -85,10 +86,10 @@ void WriteHeader(const std::string &file, SamWriter &out)
    }
 }
 
-void WriteRecord(const RAMNTupleRecord &rec, const std::string &qual, const std::vector<std::string> &tags,
-                 SamWriter &out)
+void WriteRecord(const RAMNTupleRecord &rec, const std::string &qname, const std::string &qual,
+                 const std::vector<std::string> &tags, SamWriter &out)
 {
-   out.Str(rec.GetQNAME());
+   out.Str(qname);
    out.Tab();
    out.Int(rec.GetFLAG());
    out.Tab();
@@ -234,6 +235,7 @@ int main(int argc, char *argv[])
    auto view = reader->GetView<RAMNTupleRecord>("record");
    QualityBlockReader quals(*reader);
    TagReader tags(*reader);
+   MateNameReader names(*reader);
    Long64_t kept = 0;
 
    ramntuplescan(*reader, region.c_str(), [&](Long64_t row) {
@@ -242,9 +244,10 @@ int main(int argc, char *argv[])
       if ((flag & requireFlags) != requireFlags || (flag & excludeFlags))
          return;
       kept++;
-      if (!countOnly)
-         WriteRecord(rec, quals.Get(rec, static_cast<ROOT::NTupleSize_t>(row)),
-                     tags.Get(rec, static_cast<ROOT::NTupleSize_t>(row)), writer);
+      if (!countOnly) {
+         const auto r = static_cast<ROOT::NTupleSize_t>(row);
+         WriteRecord(rec, names.Get(rec, r), quals.Get(rec, r), tags.Get(rec, r), writer);
+      }
    });
 
    if (countOnly) {

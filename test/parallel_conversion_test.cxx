@@ -1,4 +1,5 @@
 // Many small blocks on several threads must equal one block on one thread.
+#include "ramcore/MateNames.h"
 #include "ramcore/RAMNTupleView.h"
 #include "ramcore/SamToNTuple.h"
 #include "ramcore/TagColumns.h"
@@ -80,9 +81,10 @@ Dump ReadBack(const char *file)
    d.rname_refs = RAMNTupleRecord::GetRnameRefs()->GetRefs();
    auto view = reader->GetView<RAMNTupleRecord>("record");
    TagReader tags(*reader);
+   MateNameReader names(*reader);
    for (auto i : reader->GetEntryRange()) {
       const RAMNTupleRecord &r = view(i);
-      std::string line = r.GetQNAME() + "\t" + std::to_string(r.GetFLAG()) + "\t" + r.GetRNAME() + "\t" +
+      std::string line = names.Get(r, i) + "\t" + std::to_string(r.GetFLAG()) + "\t" + r.GetRNAME() + "\t" +
                          std::to_string(r.GetPOS()) + "\t" + std::to_string(r.GetMAPQ()) + "\t" + r.GetCIGAR() + "\t" +
                          r.GetRNEXT() + "\t" + std::to_string(r.GetPNEXT()) + "\t" + std::to_string(r.GetTLEN()) +
                          "\t" + r.GetSEQ() + "\t" + r.GetQUAL();

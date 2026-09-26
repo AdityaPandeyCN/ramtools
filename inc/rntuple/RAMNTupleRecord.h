@@ -108,6 +108,7 @@ public:
    };
 
    static constexpr const char *kQualBlockField = "qualblock";
+   static constexpr const char *kQnameRefField = "qnameref";
 
    // Alignment data fields
    std::string qname;             // Query template NAME

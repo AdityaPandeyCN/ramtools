@@ -56,6 +56,7 @@ ROOT_STANDARD_LIBRARY_PACKAGE(ramcore
         src/ramcore/BamtoNTuple.cxx
         src/ramcore/QualityBlocks.cxx
         src/ramcore/TagColumns.cxx
+        src/ramcore/MateNames.cxx
     LINKDEF
         inc/rntuple/LinkDef.h
     DEPENDENCIES
