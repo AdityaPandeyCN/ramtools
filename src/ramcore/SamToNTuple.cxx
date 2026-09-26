@@ -25,6 +25,7 @@
 #include <deque>
 #include <exception>
 #include <fstream>
+#include <ios>
 #include <functional>
 #include <future>
 #include <map>

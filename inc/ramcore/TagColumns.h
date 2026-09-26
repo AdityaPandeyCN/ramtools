@@ -28,7 +28,7 @@ struct TagColumn {
    std::string key; ///< Two characters, such as "NM".
    char type = 'Z'; ///< 'i', 'A' or 'Z'.
 
-   std::string FieldName() const { return "tag_" + key + "_" + type; }
+   [[nodiscard]] std::string FieldName() const { return "tag_" + key + "_" + type; }
 };
 
 /// Chooses the columns from the tags of the first records of an input.
@@ -38,7 +38,7 @@ public:
    void AddTag(std::string_view tag);
    /// Keys and types of type 'i', 'A' or 'Z' found in at least 1% of the records,
    /// in the order they first appear.
-   std::vector<TagColumn> Columns() const;
+   [[nodiscard]] std::vector<TagColumn> Columns() const;
 
 private:
    std::map<std::string, std::size_t> m_counts; ///< By key and type, such as "NMi".
@@ -77,7 +77,7 @@ private:
       std::optional<ROOT::RNTupleView<std::string>> strings;
    };
 
-   void Append(std::string &tag, Column &column, ROOT::NTupleSize_t row);
+   static void Append(std::string &tag, Column &column, ROOT::NTupleSize_t row);
 
    std::optional<ROOT::RNTupleView<std::uint64_t>> m_mask;
    std::optional<ROOT::RNTupleView<std::string>> m_layout;

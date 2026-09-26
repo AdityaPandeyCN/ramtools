@@ -226,7 +226,7 @@ std::vector<std::string> TagReader::Get(const RAMNTupleRecord &rec, ROOT::NTuple
          i++;
          continue;
       }
-      const std::string_view key(layout.data() + i, 2);
+      const std::string_view key = std::string_view(layout).substr(i, 2);
       const char type = layout.at(i + 2);
       i += 3;
       Column *column = nullptr;
