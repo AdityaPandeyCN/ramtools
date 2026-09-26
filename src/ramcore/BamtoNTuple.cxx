@@ -1,5 +1,6 @@
 #include "ramcore/BamtoNTuple.h"
 #include "ramcore/QualityBlocks.h"
+#include "ramcore/TagColumns.h"
 
 #include "rntuple/RAMNTupleRecord.h"
 
@@ -192,6 +193,26 @@ void FillRecord(RAMNTupleRecord *rec, const bam1_t *b, const sam_hdr_t *hdr, uin
    }
 }
 
+// Tag columns from the first records of the file, read through a handle of their own.
+std::vector<TagColumn> SampleTags(const char *bamfile)
+{
+   TagSampler sampler;
+   samFile *in = sam_open(bamfile, "r");
+   sam_hdr_t *hdr = in ? sam_hdr_read(in) : nullptr;
+   bam1_t *b = bam_init1();
+   for (int n = 0; hdr && n < 100000 && sam_read1(in, hdr, b) >= 0; n++) {
+      sampler.AddRecord();
+      for (const auto &tag : GetTags(b))
+         sampler.AddTag(tag);
+   }
+   bam_destroy1(b);
+   if (hdr)
+      sam_hdr_destroy(hdr);
+   if (in)
+      sam_close(in);
+   return sampler.Columns();
+}
+
 } // namespace
 
 void bamtoramntuple(const char *bamfile, const char *treefile, bool /*split*/, bool /*cache*/,
@@ -230,6 +251,8 @@ void bamtoramntuple(const char *bamfile, const char *treefile, bool /*split*/, b
       RAMNTupleRecord::GetRnameRefs()->GetRefId(sam_hdr_tid2name(hdr, i));
 
    auto model = RAMNTupleRecord::MakeModel();
+   const std::vector<TagColumn> tag_columns = SampleTags(bamfile);
+   AddTagFields(*model, tag_columns);
    ROOT::RNTupleWriteOptions opts;
    opts.SetCompression(compression_algorithm);
    opts.SetMaxUnzippedPageSize(64000);
@@ -237,6 +260,7 @@ void bamtoramntuple(const char *bamfile, const char *treefile, bool /*split*/, b
    auto writer = ROOT::RNTupleWriter::Append(std::move(model), "RAM", *rootFile, opts);
    QualityBlockWriter out(writer->GetModel().CreateEntry(), writer->GetModel().CreateEntry(),
                           [&writer](ROOT::REntry &e) { writer->Fill(e); });
+   TagWriter tags(tag_columns);
 
    bam1_t *rec = bam_init1();
    std::size_t count = 0;
@@ -246,6 +270,7 @@ void bamtoramntuple(const char *bamfile, const char *treefile, bool /*split*/, b
       FillRecord(&record, rec, hdr, quality_policy);
       RAMNTupleRecord::NoteRefSpan(record.GetRefSpan());
       RAMNTupleRecord::NotePlacement(record.GetREFID(), record.GetPOS() - 1);
+      tags.Move(record, out.Entry());
       out.Add();
 
       ++count;

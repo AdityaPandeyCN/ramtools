@@ -1,6 +1,7 @@
 #include "ramcore/SamToNTuple.h"
 #include "ramcore/QualityBlocks.h"
 #include "ramcore/SamParser.h"
+#include "ramcore/TagColumns.h"
 #include "rntuple/RAMNTupleRecord.h"
 
 #include <ROOT/REntry.hxx>
@@ -23,6 +24,7 @@
 #include <cstdio>
 #include <deque>
 #include <exception>
+#include <fstream>
 #include <functional>
 #include <future>
 #include <map>
@@ -76,11 +78,56 @@ void FillRecordFields(const ramcore::SamRecord &sam_record, RAMNTupleRecord &rec
 
 namespace {
 
+// How much of the input the tag columns are chosen from: one input block.
+constexpr size_t kTagSampleBytes = 64 * 1024 * 1024;
+
+// Tag columns for the records in a piece of SAM text.
+std::vector<TagColumn> SampleTags(std::string_view text)
+{
+   TagSampler sampler;
+   size_t start = 0;
+   while (start < text.size()) {
+      size_t end = text.find('\n', start);
+      if (end == std::string_view::npos)
+         end = text.size();
+      std::string_view line = text.substr(start, end - start);
+      start = end + 1;
+      if (!line.empty() && line.back() == '\r')
+         line.remove_suffix(1);
+      if (line.empty() || line[0] == '@')
+         continue;
+      sampler.AddRecord();
+      size_t field = 0;
+      for (size_t pos = 0;; field++) {
+         const size_t tab = line.find('\t', pos);
+         if (field >= 11)
+            sampler.AddTag(line.substr(pos, tab == std::string_view::npos ? std::string_view::npos : tab - pos));
+         if (tab == std::string_view::npos)
+            break;
+         pos = tab + 1;
+      }
+   }
+   return sampler.Columns();
+}
+
+std::vector<TagColumn> SampleTagsFromFile(const char *path)
+{
+   std::ifstream in(path, std::ios::binary);
+   std::string text(kTagSampleBytes, '\0');
+   in.read(text.data(), static_cast<std::streamsize>(text.size()));
+   text.resize(static_cast<size_t>(in.gcount()));
+   // Drop a record cut off at the end of the sample.
+   if (text.size() == kTagSampleBytes)
+      text.resize(text.rfind('\n') + 1);
+   return SampleTags(text);
+}
+
 // One output file, held open while the input streams past it.
 struct ChromosomeWriter {
    std::unique_ptr<TFile> file{};
    std::unique_ptr<ROOT::RNTupleWriter> writer{};
    std::unique_ptr<QualityBlockWriter> out;
+   TagWriter tags;
    int64_t rows = 0;
    int32_t last_pos = -1;
    bool sorted = true;
@@ -92,6 +139,7 @@ void samtoramntuple_split_by_chromosome(const char *datafile, const char *output
                                         uint32_t quality_policy)
 {
    RAMNTupleRecord::InitializeRefs();
+   const std::vector<TagColumn> tag_columns = SampleTagsFromFile(datafile);
 
    std::map<std::string, ChromosomeWriter> writers;
    TList headers;
@@ -122,7 +170,10 @@ void samtoramntuple_split_by_chromosome(const char *datafile, const char *output
       // Every chromosome's buffers are open at once, so keep the clusters small.
       writeOptions.SetApproxZippedClusterSize(8 * 1024 * 1024);
 
-      cw.writer = ROOT::RNTupleWriter::Append(RAMNTupleRecord::MakeModel(), "RAM", *cw.file, writeOptions);
+      auto model = RAMNTupleRecord::MakeModel();
+      AddTagFields(*model, tag_columns);
+      cw.writer = ROOT::RNTupleWriter::Append(std::move(model), "RAM", *cw.file, writeOptions);
+      cw.tags = TagWriter(tag_columns);
       auto *writer = cw.writer.get();
       cw.out = std::make_unique<QualityBlockWriter>(writer->GetModel().CreateEntry(), writer->GetModel().CreateEntry(),
                                                     [writer](ROOT::REntry &e) { writer->Fill(e); });
@@ -142,6 +193,7 @@ void samtoramntuple_split_by_chromosome(const char *datafile, const char *output
       rec.SetREFNEXT(sam_record.rnext);
 
       RAMNTupleRecord::NoteRefSpan(rec.GetRefSpan());
+      cw.tags.Move(rec, cw.out->Entry());
       cw.out->Add();
       cw.rows++;
 
@@ -402,8 +454,8 @@ public:
    ~CloseQueueOnExit() { m_queue.Abort(); }
 };
 
-BlockOrder ProcessBlock(Block &block, QualityBlockWriter &out, uint32_t quality_policy, RefCache &rname_cache,
-                        RefCache &rnext_cache, ramcore::SamRecord &sam_record, size_t &records,
+BlockOrder ProcessBlock(Block &block, QualityBlockWriter &out, TagWriter &tags, uint32_t quality_policy,
+                        RefCache &rname_cache, RefCache &rnext_cache, ramcore::SamRecord &sam_record, size_t &records,
                         std::vector<std::pair<std::string, std::string>> &late_headers)
 {
    BlockOrder order;
@@ -449,6 +501,7 @@ BlockOrder ProcessBlock(Block &block, QualityBlockWriter &out, uint32_t quality_
 
       order.max_span = std::max(order.max_span, rec.GetRefSpan());
       order.Note(rec.refid, rec.pos);
+      tags.Move(rec, out.Entry());
       out.Add();
       records++;
    }
@@ -456,11 +509,12 @@ BlockOrder ProcessBlock(Block &block, QualityBlockWriter &out, uint32_t quality_
 }
 
 void WorkerMain(BlockQueue &queue, Progress &progress, const std::shared_ptr<ROOT::RNTupleFillContext> &ctx,
-                uint32_t quality_policy)
+                uint32_t quality_policy, const std::vector<TagColumn> &tag_columns)
 {
    const StopOthersOnException guard(progress, queue);
 
    QualityBlockWriter out(ctx->CreateEntry(), ctx->CreateEntry(), [&ctx](ROOT::REntry &e) { ctx->Fill(e); });
+   TagWriter tags(tag_columns);
    RefCache rname_cache;
    RefCache rnext_cache;
    ramcore::SamRecord sam_record;
@@ -470,7 +524,7 @@ void WorkerMain(BlockQueue &queue, Progress &progress, const std::shared_ptr<ROO
       size_t records = 0;
       std::vector<std::pair<std::string, std::string>> late_headers;
       const BlockOrder order =
-         ProcessBlock(block, out, quality_policy, rname_cache, rnext_cache, sam_record, records, late_headers);
+         ProcessBlock(block, out, tags, quality_policy, rname_cache, rnext_cache, sam_record, records, late_headers);
       // Quality blocks end with the input block, whose clusters are committed as a unit.
       out.Finish();
       const std::vector<uint64_t> block_ends = out.TakeBlockEnds();
@@ -578,6 +632,8 @@ bool samtoramntuple(const char *datafile, const char *treefile, int compression_
    auto model = ROOT::RNTupleModel::CreateBare();
    model->MakeField<RAMNTupleRecord>("record");
    model->MakeField<std::vector<std::uint8_t>>(RAMNTupleRecord::kQualBlockField);
+   const std::vector<TagColumn> tag_columns = SampleTags(std::string_view(first.data.data(), first.data.size()));
+   AddTagFields(*model, tag_columns);
 
    ROOT::RNTupleWriteOptions writeOptions;
    writeOptions.SetCompression(compression_algorithm);
@@ -599,8 +655,8 @@ bool samtoramntuple(const char *datafile, const char *treefile, int compression_
          auto ctx = writer->CreateFillContext();
          ctx->EnableStagedClusterCommitting();
          contexts.push_back(ctx);
-         workers.push_back(
-            std::async(std::launch::async, WorkerMain, std::ref(queue), std::ref(progress), ctx, quality_policy));
+         workers.push_back(std::async(std::launch::async, WorkerMain, std::ref(queue), std::ref(progress), ctx,
+                                      quality_policy, std::cref(tag_columns)));
       }
 
       if (have_records) {

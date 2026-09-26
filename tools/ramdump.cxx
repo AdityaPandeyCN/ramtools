@@ -4,6 +4,7 @@
 
 #include "ramcore/QualityBlocks.h"
 #include "ramcore/RAMNTupleView.h"
+#include "ramcore/TagColumns.h"
 #include "rntuple/RAMNTupleRecord.h"
 
 #include <ROOT/RNTupleReader.hxx>
@@ -84,7 +85,8 @@ void WriteHeader(const std::string &file, SamWriter &out)
    }
 }
 
-void WriteRecord(const RAMNTupleRecord &rec, const std::string &qual, SamWriter &out)
+void WriteRecord(const RAMNTupleRecord &rec, const std::string &qual, const std::vector<std::string> &tags,
+                 SamWriter &out)
 {
    out.Str(rec.GetQNAME());
    out.Tab();
@@ -108,7 +110,7 @@ void WriteRecord(const RAMNTupleRecord &rec, const std::string &qual, SamWriter 
    out.Tab();
    out.Str(qual);
 
-   for (const auto &tag : rec.GetTags()) {
+   for (const auto &tag : tags) {
       out.Tab();
       out.Str(tag);
    }
@@ -231,6 +233,7 @@ int main(int argc, char *argv[])
 
    auto view = reader->GetView<RAMNTupleRecord>("record");
    QualityBlockReader quals(*reader);
+   TagReader tags(*reader);
    Long64_t kept = 0;
 
    ramntuplescan(*reader, region.c_str(), [&](Long64_t row) {
@@ -240,7 +243,8 @@ int main(int argc, char *argv[])
          return;
       kept++;
       if (!countOnly)
-         WriteRecord(rec, quals.Get(rec, static_cast<ROOT::NTupleSize_t>(row)), writer);
+         WriteRecord(rec, quals.Get(rec, static_cast<ROOT::NTupleSize_t>(row)),
+                     tags.Get(rec, static_cast<ROOT::NTupleSize_t>(row)), writer);
    });
 
    if (countOnly) {

@@ -34,6 +34,8 @@ public:
                       std::size_t block_records = kQualityBlockRecords);
 
    RAMNTupleRecord &Record() { return *m_records.at(m_current); }
+   /// The entry that holds Record(), for other fields of the same row.
+   ROOT::REntry &Entry() { return *m_entries.at(m_current); }
    void Add();
    /// Ends the current block; needed before the written rows are flushed.
    void Finish();
