@@ -15,6 +15,7 @@ The tools:
 | `bamtoramntuple` | converts a BAM file to RAM |
 | `ramdump` | writes a RAM file, or a region of it, out as SAM; takes the `samtools view` options |
 | `ramntupleview` | counts the records in a region and reports the query time |
+| `raminfo` | shows a RAM file's layout and how many bytes each field takes |
 
 ## Installation
 
@@ -155,6 +156,33 @@ of these FLAG bits) and `-o FILE`. For example, primary alignments only:
 ```bash
 ./build/tools/ramntupleview reads.ram chr1:10150-10300
 ```
+
+## Inspecting a RAM file
+
+`raminfo` reports how many records a file holds and in how many clusters, its
+compression setting, whether it is coordinate sorted, and then how the
+compressed bytes split across the record's fields:
+
+```bash
+./build/tools/raminfo reads.ram
+```
+
+For the first 2 million records of HG00154 at the default ZSTD 5:
+
+```
+member                                   MB   share       raw MB   ratio  B/record
+record.qname                           7.71    6.3%        51.40    6.66      3.86
+record.pos                             2.20    1.8%         8.00    3.64      1.10
+record.seq                            26.85   22.1%       100.01    3.72     13.43
+record.qual                           58.51   48.2%       168.01    2.87     29.26
+record.tags                           16.60   13.7%       470.27   28.33      8.30
+...
+```
+
+With `-v` every field is broken down into its columns, for example a string's
+characters and its offsets, with the number of pages and the on-disk type of
+each. It reads only the file's metadata, so it takes a second or two on any
+file size.
 
 ## Checking a RAM file against samtools
 

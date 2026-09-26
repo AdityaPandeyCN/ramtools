@@ -48,10 +48,11 @@ endif()
 
 if(TARGET ramdump)
     add_ramcore_test(ramdump_test ramdump_test.cxx)
-    add_dependencies(ramdump_test samtoramntuple ramdump)
+    add_dependencies(ramdump_test samtoramntuple ramdump raminfo)
     target_compile_definitions(ramdump_test PRIVATE
         SAMTORAMNTUPLE_BIN="$<TARGET_FILE:samtoramntuple>"
-        RAMDUMP_BIN="$<TARGET_FILE:ramdump>")
+        RAMDUMP_BIN="$<TARGET_FILE:ramdump>"
+        RAMINFO_BIN="$<TARGET_FILE:raminfo>")
 endif()
 
 install(TARGETS ramcoretests chromosome_split_test bam_conversion parallel_conversion_test

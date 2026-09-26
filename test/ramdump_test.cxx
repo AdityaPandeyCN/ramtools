@@ -1,5 +1,6 @@
-// Runs the built samtoramntuple and ramdump on a small SAM and checks that the
-// dump reproduces the input and that its counts follow samtools' rules.
+// Runs the built samtoramntuple, ramdump and raminfo on a small SAM and checks
+// that the dump reproduces the input, that its counts follow samtools' rules,
+// and that raminfo describes the file.
 #include <gtest/gtest.h>
 #include <array>
 #include <cstdio>
@@ -67,6 +68,18 @@ std::string Dump(const std::string &options, const std::string &region = "")
 int Status(const std::string &options, const std::string &file, const std::string &region = "")
 {
    return std::system((Command(options, file, region) + " >/dev/null 2>&1").c_str());
+}
+
+// raminfo <options> <file>, returning what it printed.
+std::string Info(const std::string &options, const std::string &file)
+{
+   const std::string cmd = std::string(RAMINFO_BIN) + " " + options + " " + file + " 2>&1";
+   const std::unique_ptr<FILE, int (*)(FILE *)> pipe(popen(cmd.c_str(), "r"), pclose);
+   std::string out{};
+   std::array<char, 4096> buf{};
+   while (pipe && fgets(buf.data(), buf.size(), pipe.get()))
+      out += buf.data();
+   return out;
 }
 
 std::string ReadFile(const char *path)
@@ -149,6 +162,34 @@ TEST_F(RamdumpTest, RejectsBadArguments)
    EXPECT_NE(Status("-x", kRamFile), 0);
    EXPECT_NE(Status("", "missing.root"), 0);
    EXPECT_EQ(Status("", kRamFile, "chr9"), 0) << "an unknown reference is empty, not an error";
+}
+
+TEST_F(RamdumpTest, InfoDescribesTheFile)
+{
+   const std::string out = Info("", kRamFile);
+   EXPECT_NE(out.find("records       5 in 1 clusters"), std::string::npos) << out;
+   EXPECT_NE(out.find("coordinate    not sorted; longest reference span 50"), std::string::npos)
+      << "the unplaced r4 comes before r5, so the file is not sorted; r2's 50M is the longest span\n"
+      << out;
+   EXPECT_NE(out.find("references    2 RNAME"), std::string::npos) << out;
+   EXPECT_NE(out.find("header        4 lines"), std::string::npos) << out;
+   for (const char *member :
+        {"record.qname ", "record.pos ", "record.cigar ", "record.seq ", "record.qual ", "record.tags "})
+      EXPECT_NE(out.find(member), std::string::npos) << member << " missing from\n" << out;
+   EXPECT_EQ(out.find(" #0 "), std::string::npos) << "columns are listed only with -v";
+}
+
+TEST_F(RamdumpTest, InfoListsColumnsWithV)
+{
+   const std::string out = Info("-v", kRamFile);
+   EXPECT_NE(out.find("record.qual #1"), std::string::npos) << out;
+   EXPECT_NE(out.find("SplitIndex64"), std::string::npos) << "string offsets are a column of their own\n" << out;
+}
+
+TEST_F(RamdumpTest, InfoRejectsAMissingFile)
+{
+   EXPECT_NE(std::system((std::string(RAMINFO_BIN) + " missing.root >/dev/null 2>&1").c_str()), 0);
+   EXPECT_NE(std::system((std::string(RAMINFO_BIN) + " >/dev/null 2>&1").c_str()), 0);
 }
 
 } // namespace
